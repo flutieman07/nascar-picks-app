@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html><head><title>Admin - Schedule</title></head><body>
+<h2>Admin: Import/Update Race Schedule</h2>
+<p>Paste CSV with headers: <code>week,race_name,race_date</code> (date optional). Example below.</p>
+{% if message %}<p><strong>{{ message }}</strong></p>{% endif %}
+<form method="post">
+  <textarea name="csv_text" rows="10" cols="80" placeholder="week,race_name,race_date&#10;1,Daytona 500,2025-02-16&#10;2,Atlanta,2025-02-23"></textarea><br><br>
+  <button type="submit">Import / Replace</button>
+</form>
+<h3>Current Schedule</h3>
+{% if schedule %}
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Week</th><th>Race</th><th>Date</th></tr></thead>
+<tbody>
+{% for s in schedule %}
+  <tr><td>{{ s.week }}</td><td>{{ s.race_name }}</td><td>{{ s.race_date }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}<p>(none yet)</p>{% endif %}
+<p style="margin-top:1rem;"><a href="/admin_order">Back to Order</a> | <a href="/draft">Back to Draft</a></p>
+</body></html>

@@ -1,11 +1,8 @@
 <!DOCTYPE html>
-<html>
-<head><title>Admin - Users</title></head>
-<body>
+<html><head><title>Admin - Users</title></head><body>
 <h2>Admin: Manage Users</h2>
 {% if message %}<p><strong>{{ message }}</strong></p>{% endif %}
 {% if temp_pw %}<p style="background:#eef;padding:8px;">Temporary password: <code>{{ temp_pw }}</code></p>{% endif %}
-
 <h3>Create user</h3>
 <form method="post">
   <input type="hidden" name="action" value="create">
@@ -13,36 +10,31 @@
   <label><input type="checkbox" name="is_admin"> Admin</label>
   <button type="submit">Create</button>
 </form>
-
 <h3>Reset password</h3>
 <form method="post">
   <input type="hidden" name="action" value="reset">
   <label>Username: <input type="text" name="username" required></label>
   <button type="submit">Reset (generate temporary)</button>
 </form>
-
 <h3>Delete user</h3>
 <form method="post">
   <input type="hidden" name="action" value="delete">
   <label>Username: <input type="text" name="username" required></label>
   <button type="submit" onclick="return confirm('Delete this user?')">Delete</button>
 </form>
-
 <h3>Current users</h3>
 <table border="1" cellpadding="6" cellspacing="0">
-  <thead><tr><th>Username</th><th>Admin</th><th>Has Password</th><th>Must Change PW</th></tr></thead>
-  <tbody>
-    {% for u in users %}
-      <tr>
-        <td>{{ u.username }}</td>
-        <td>{{ 'Yes' if u.is_admin else 'No' }}</td>
-        <td>{{ 'Yes' if u.has_pw else 'No' }}</td>
-        <td>{{ 'Yes' if u.must_change_pw else 'No' }}</td>
-      </tr>
-    {% endfor %}
-  </tbody>
+<thead><tr><th>Username</th><th>Admin</th><th>Has Password</th><th>Must Change PW</th></tr></thead>
+<tbody>
+{% for u in users %}
+  <tr>
+    <td>{{ u.username }}</td>
+    <td>{{ 'Yes' if u.is_admin else 'No' }}</td>
+    <td>{{ 'Yes' if u.has_pw else 'No' }}</td>
+    <td>{{ 'Yes' if u.must_change_pw else 'No' }}</td>
+  </tr>
+{% endfor %}
+</tbody>
 </table>
-
 <p style="margin-top:1rem;"><a href="/admin_order">Set Weekly Draft Order</a> | <a href="/draft">Back to Draft</a></p>
-</body>
-</html>
+</body></html>

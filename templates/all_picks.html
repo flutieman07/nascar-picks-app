@@ -1,8 +1,6 @@
 <!DOCTYPE html>
-<html>
-<head><title>All Picks</title></head>
-<body>
-<h2>All Picks (Grouped by User)</h2>
+<html><head><title>All Picks</title></head><body>
+<h2>All Picks (Grouped by User) — Week {{ week }}{% if sched %} — {{ sched.race_name }}{% if sched.race_date %} ({{ sched.race_date }}){% endif %}{% endif %}</h2>
 <form method="get" action="/all_picks" style="margin-bottom:1rem;">
   Week:
   <select name="week">
@@ -12,7 +10,6 @@
   </select>
   <button type="submit">Go</button>
 </form>
-
 {% if picks and picks|length > 0 %}
 <table border="1" cellpadding="6" cellspacing="0">
   <thead><tr><th>User</th><th>Driver 1</th><th>Driver 2</th><th>Driver 3</th><th>Driver 4</th><th>Driver 5</th><th>Driver 6</th></tr></thead>
@@ -24,10 +21,6 @@
     {% endfor %}
   </tbody>
 </table>
-{% else %}
-<p>No picks found yet for this week.</p>
-{% endif %}
-
+{% else %}<p>No picks found yet for this week.</p>{% endif %}
 <p style="margin-top:1rem;"><a href="/draft">Back to Draft</a></p>
-</body>
-</html>
+</body></html>

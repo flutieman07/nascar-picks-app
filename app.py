@@ -1,8 +1,9 @@
 
-from flask import Flask, render_template, request, redirect, session, url_for, send_file
+from flask import Flask, render_template, request, redirect, session, url_for, send_file, jsonify
 import sqlite3
 import csv
 import os
+from io import StringIO
 from pathlib import Path
 from werkzeug.security import generate_password_hash, check_password_hash
 import secrets
@@ -11,7 +12,6 @@ import string
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change_me_please")
 
-# Persistent DB (works with Render Disk via DB_PATH=/var/data/picks.db)
 DB_PATH = os.environ.get("DB_PATH", "picks.db")
 DB_DIR = os.path.dirname(DB_PATH)
 if DB_DIR and not os.path.exists(DB_DIR):
@@ -25,7 +25,7 @@ def load_drivers():
         raise FileNotFoundError(f"Missing {DRIVERS_CSV}. Put it next to app.py.")
     with open(DRIVERS_CSV, newline="") as f:
         reader = csv.reader(f)
-        next(reader, None)  # skip header
+        next(reader, None)
         return [row[0] for row in reader if row and row[0].strip()]
 
 drivers = load_drivers()
@@ -65,12 +65,17 @@ def init_db():
         is_admin INTEGER NOT NULL DEFAULT 0,
         must_change_pw INTEGER NOT NULL DEFAULT 1
     )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS schedule (
+        week INTEGER PRIMARY KEY,
+        race_name TEXT NOT NULL,
+        race_date TEXT
+    )""")
     c.execute("INSERT OR IGNORE INTO meta (key,value) VALUES ('current_week',1)")
     conn.commit(); conn.close()
 
 init_db()
 
-# ---- Users helpers ----
+# --- Helpers ---
 def get_user(username):
     conn=get_conn(); c=conn.cursor()
     c.execute("SELECT username, password_hash, is_admin, must_change_pw FROM users WHERE username=?", (username,))
@@ -83,6 +88,9 @@ def list_users():
     c.execute("SELECT username, is_admin, (password_hash IS NOT NULL AND password_hash!='') as has_pw, must_change_pw FROM users ORDER BY username")
     rows=[{"username":r[0], "is_admin":bool(r[1]), "has_pw":bool(r[2]), "must_change_pw":bool(r[3])} for r in c.fetchall()]
     conn.close(); return rows
+
+def user_names():
+    return [u["username"] for u in list_users()]
 
 def set_user(username, password, is_admin=False, must_change=True):
     ph = generate_password_hash(password) if password else None
@@ -117,14 +125,12 @@ def ensure_seed_users():
     for uname, admin in wanted:
         c.execute("SELECT 1 FROM users WHERE username=?", (uname,))
         if not c.fetchone():
-            # Create with NULL password so admin must set/reset securely
             c.execute("INSERT INTO users (username, password_hash, is_admin, must_change_pw) VALUES (?, NULL, ?, 1)",
                       (uname, int(admin)))
     conn.commit(); conn.close()
 
 ensure_seed_users()
 
-# ---- Week helpers ----
 def get_current_week():
     conn=get_conn(); c=conn.cursor()
     c.execute("SELECT value FROM meta WHERE key='current_week'"); r=c.fetchone()
@@ -140,7 +146,26 @@ def advance_week():
     c.execute("UPDATE meta SET value=value+1 WHERE key='current_week'")
     conn.commit(); conn.close()
 
-# ---- Draft helpers ----
+def get_schedule_entry(week:int):
+    conn=get_conn(); c=conn.cursor()
+    c.execute("SELECT race_name, race_date FROM schedule WHERE week=?", (week,))
+    r=c.fetchone(); conn.close()
+    if not r: return None
+    return {"race_name": r[0], "race_date": r[1]}
+
+def list_schedule():
+    conn=get_conn(); c=conn.cursor()
+    c.execute("SELECT week, race_name, COALESCE(race_date,'') FROM schedule ORDER BY week")
+    rows=[{"week":r[0], "race_name":r[1], "race_date":r[2]} for r in c.fetchall()]
+    conn.close(); return rows
+
+def upsert_schedule(rows):
+    conn=get_conn(); c=conn.cursor()
+    for wk, name, date in rows:
+        c.execute("REPLACE INTO schedule (week, race_name, race_date) VALUES (?,?,?)", (wk, name, date))
+    conn.commit(); conn.close()
+
+# --- Draft helpers ---
 def draft_available_drivers(week):
     conn=get_conn(); c=conn.cursor()
     c.execute("SELECT driver FROM draft_picks WHERE week=?", (week,))
@@ -154,7 +179,7 @@ def user_draft_picks(week, username):
 
 def get_draft(week):
     conn=get_conn(); c=conn.cursor()
-    c.execute("SELECT week,order_csv,current_round,current_index,rounds_total,status FROM drafts WHERE week=?", (week,))
+    c.execute("SELECT week,order_csv,current_round,current_index,rounds_total,status FROM drafts WHERE week=?",(week,))
     r=c.fetchone(); conn.close()
     if not r: return None
     return {"week":r[0], "order":r[1].split(","), "current_round":r[2], "current_index":r[3], "rounds_total":r[4], "status":r[5]}
@@ -169,7 +194,7 @@ def create_draft(week, order_list):
 
 def add_draft_pick(week, round_no, username, driver):
     conn=get_conn(); c=conn.cursor()
-    c.execute("INSERT INTO draft_picks (week,round,username,driver) VALUES (?,?,?,?)", (week,round_no,username,driver))
+    c.execute("INSERT INTO draft_picks (week,round,username,driver) VALUES (?,?,?,?)",(week,round_no,username,driver))
     conn.commit(); conn.close()
 
 def advance_pointer(draft):
@@ -184,7 +209,7 @@ def advance_pointer(draft):
         status="complete"
     conn=get_conn(); c=conn.cursor()
     c.execute("UPDATE drafts SET current_round=?, current_index=?, status=? WHERE week=?",
-              (new_round,new_index,status,draft["week"])) 
+              (new_round,new_index,status,draft["week"]))
     conn.commit(); conn.close()
 
 def consolidate_to_picks(week):
@@ -192,17 +217,17 @@ def consolidate_to_picks(week):
     c.execute("SELECT DISTINCT username FROM draft_picks WHERE week=?", (week,))
     users_in_draft=[r[0] for r in c.fetchall()]
     for uname in users_in_draft:
-        c.execute("SELECT driver FROM draft_picks WHERE week=? AND username=? ORDER BY round ASC", (week,uname))
+        c.execute("SELECT driver FROM draft_picks WHERE week=? AND username=? ORDER BY round ASC",(week,uname))
         ds=[r[0] for r in c.fetchall()]
         if len(ds)==ROUNDS_TOTAL:
-            c.execute("SELECT 1 FROM picks WHERE week=? AND username=? LIMIT 1", (week,uname))
+            c.execute("SELECT 1 FROM picks WHERE week=? AND username=? LIMIT 1",(week,uname))
             if not c.fetchone():
                 c.execute("""INSERT INTO picks (username,week,driver1,driver2,driver3,driver4,driver5,driver6)
                           VALUES (?,?,?,?,?,?,?,?)""", (uname,week,*ds))
     conn.commit(); conn.close()
 
-# ---- Auth & admin ----
-@app.route("/", methods=["GET","POST"])  # Login page
+# --- Routes ---
+@app.route("/", methods=["GET","POST"])
 def login():
     if request.method=="POST":
         u=request.form.get("username","").strip(); p=request.form.get("password","")
@@ -213,13 +238,13 @@ def login():
             if user["must_change_pw"]:
                 return redirect(url_for("change_password"))
             return redirect(url_for("draft"))
-    return render_template("login.html") 
+    return render_template("login.html")
 
 @app.route("/logout")
 def logout():
     session.clear(); return redirect(url_for("login"))
 
-@app.route("/admin_users", methods=["GET","POST"])  # Admin manage users
+@app.route("/admin_users", methods=["GET","POST"])
 def admin_users():
     if not session.get("is_admin"): return "Unauthorized",403
     message=None; temp_pw=None
@@ -247,7 +272,7 @@ def admin_users():
                 delete_user(uname); message=f"Deleted {uname}."
     return render_template("admin_users.html", users=list_users(), message=message, temp_pw=temp_pw)
 
-@app.route("/change_password", methods=["GET","POST"])  # Force change on first login
+@app.route("/change_password", methods=["GET","POST"])
 def change_password():
     if "username" not in session: return redirect(url_for("login"))
     message=None
@@ -255,7 +280,7 @@ def change_password():
         current = request.form.get("current","")
         new1 = request.form.get("new1","")
         new2 = request.form.get("new2","")
-        user = get_user(session["username"]) 
+        user = get_user(session["username"])
         if not user or not user["password_hash"] or not check_password_hash(user["password_hash"], current):
             message="Current password is incorrect."
         elif len(new1) < 8:
@@ -265,12 +290,11 @@ def change_password():
         else:
             ph = generate_password_hash(new1)
             conn=get_conn(); c=conn.cursor()
-            c.execute("UPDATE users SET password_hash=?, must_change_pw=0 WHERE username=?", (ph, session["username"])) 
+            c.execute("UPDATE users SET password_hash=?, must_change_pw=0 WHERE username=?", (ph, session["username"]))
             conn.commit(); conn.close()
             return redirect(url_for("draft"))
     return render_template("change_password.html", message=message)
 
-# One-time bootstrap for admin (guarded by ADMIN_TOKEN env var)
 @app.route("/admin_bootstrap")
 def admin_bootstrap():
     token = request.args.get("token","")
@@ -284,8 +308,40 @@ def admin_bootstrap():
     reset_user_password("Matt", temp_pw)
     return f"Temporary admin password for Matt: {temp_pw}. Log in as Matt, then change your password."
 
-# Admin: set order
-@app.route("/admin_order", methods=["GET","POST"]) 
+@app.route("/admin_schedule", methods=["GET","POST"])
+def admin_schedule():
+    if not session.get("is_admin"): return "Unauthorized",403
+    message=None
+    if request.method=="POST":
+        csv_text = request.form.get("csv_text","").strip()
+        if not csv_text:
+            message="Please paste CSV with columns: week,race_name,race_date"
+        else:
+            try:
+                reader = csv.DictReader(StringIO(csv_text))
+                rows=[]
+                for row in reader:
+                    wk = int(row.get("week","").strip())
+                    name = row.get("race_name","").strip()
+                    date = row.get("race_date","").strip() if row.get("race_date") else None
+                    if not wk or not name:
+                        raise ValueError("Missing week or race_name")
+                    rows.append((wk, name, date))
+                upsert_schedule(rows)
+                message=f"Imported {len(rows)} schedule entries."
+            except Exception as e:
+                message=f"Failed to import: {e}"
+    sched = list_schedule()
+    return render_template("admin_schedule.html", schedule=sched, message=message)
+
+@app.route("/order")
+def order():
+    week = get_current_week()
+    d = get_draft(week)
+    sched = get_schedule_entry(week)
+    return render_template("order.html", week=week, draft=d, sched=sched)
+
+@app.route("/admin_order", methods=["GET","POST"])
 def admin_order():
     if not session.get("is_admin"): return "Unauthorized",403
     week = get_current_week(); message=None
@@ -302,18 +358,11 @@ def admin_order():
             create_draft(week, order)
             return redirect(url_for('order'))
     d = get_draft(week); current_order = d["order"] if d else None
+    sched = get_schedule_entry(week)
     return render_template("admin_order.html", week=week, valid=[u['username'] for u in list_users()],
-                           message=message, current_order=current_order)
+                           message=message, current_order=current_order, sched=sched)
 
-# Read-only order page
-@app.route("/order")
-def order():
-    week = get_current_week()
-    d = get_draft(week)
-    return render_template("order.html", week=week, draft=d)
-
-# Admin: reset picks for a week (with confirmation)
-@app.route("/admin_reset_picks", methods=["GET","POST"]) 
+@app.route("/admin_reset_picks", methods=["GET","POST"])
 def admin_reset_picks():
     if not session.get("is_admin"): return "Unauthorized", 403
     message=None; week=get_current_week()
@@ -334,7 +383,6 @@ def admin_reset_picks():
             return render_template("admin_reset_picks.html", week=week, message=f"All picks and draft state for Week {target_week} have been reset.", done=True)
     return render_template("admin_reset_picks.html", week=week, message=message, done=False)
 
-# Start draft (admin)
 @app.route("/start_draft")
 def start_draft():
     if not session.get("is_admin"): return "Unauthorized",403
@@ -344,8 +392,7 @@ def start_draft():
         create_draft(week, default_order)
     return redirect(url_for("draft", week=week))
 
-# Main draft page (also shows button to /all_picks)
-@app.route("/draft", methods=["GET","POST"]) 
+@app.route("/draft", methods=["GET","POST"])
 def draft():
     if "username" not in session: return redirect(url_for("login"))
     username=session["username"]
@@ -371,28 +418,67 @@ def draft():
     d=get_draft(week)
     on_the_clock=(d["order"][d["current_index"]] if d["current_round"]%2==1 else list(reversed(d["order"]))[d["current_index"]])
     is_my_turn=(username==on_the_clock)
+    sched = get_schedule_entry(week)
     available=draft_available_drivers(week)
+    schedule_list = list_schedule()
     return render_template("draft.html", draft=d, available=available, my_picks=my_picks,
-                           username=username, is_my_turn=is_my_turn, on_the_clock=on_the_clock)
+                           username=username, is_my_turn=is_my_turn, on_the_clock=on_the_clock,
+                           sched=sched, schedule_list=schedule_list, current_week=week, rounds_total=ROUNDS_TOTAL)
 
-# Public: all picks grouped by user, with week selector
-@app.route("/all_picks", methods=["GET"]) 
+@app.route("/draft_state")
+def draft_state():
+    week_param = request.args.get("week","").strip()
+    week = int(week_param) if week_param.isdigit() else get_current_week()
+    d = get_draft(week)
+    if not d:
+        return jsonify({"error":"no_draft"}), 404
+
+    conn=get_conn(); c=conn.cursor()
+    c.execute("SELECT round, username, driver, ts FROM draft_picks WHERE week=? ORDER BY round ASC, ts ASC, id ASC", (week,))
+    picks_rows=c.fetchall()
+    conn.close()
+
+    picks=[{"round":r, "username":u, "driver":dr, "ts":ts} for (r,u,dr,ts) in picks_rows]
+
+    grid = {}
+    order = d["order"]
+    all_users = set(user_names()) | set(order)
+    for u in order + sorted(all_users - set(order)):
+        grid[u] = {i: "" for i in range(1, d["rounds_total"]+1)}
+    for p in picks:
+        grid[p["username"]][p["round"]] = p["driver"]
+
+    on_the_clock = (order[d["current_index"]] if d["current_round"]%2==1 else list(reversed(order))[d["current_index"]])
+    available = draft_available_drivers(week)
+
+    return jsonify({
+        "week": week,
+        "status": d["status"],
+        "current_round": d["current_round"],
+        "current_index": d["current_index"],
+        "on_the_clock": on_the_clock,
+        "order": order,
+        "rounds_total": d["rounds_total"],
+        "picks": picks,
+        "grid": grid,
+        "available": available
+    })
+
+@app.route("/all_picks")
 def all_picks():
-    # selected week via ?week=, default to current
     week_param = request.args.get("week","").strip()
     week = int(week_param) if week_param.isdigit() else get_current_week()
     conn=get_conn(); c=conn.cursor()
-    c.execute("SELECT DISTINCT week FROM picks ORDER BY week"); weeks = [r[0] for r in c.fetchall()]
+    c.execute("SELECT DISTINCT week FROM picks ORDER BY week")
+    weeks = [r[0] for r in c.fetchall()]
     if week not in weeks:
-        # If no data yet, still allow viewing current week (empty table)
         if not weeks: weeks=[week]
     c.execute("""SELECT username, driver1, driver2, driver3, driver4, driver5, driver6
                  FROM picks WHERE week=? ORDER BY username""", (week,))
-    rows=c.fetchall()
-    conn.close()
-    return render_template("all_picks.html", week=week, weeks=weeks, picks=rows)
+    rows=c.fetchall(); conn.close()
+    sched = get_schedule_entry(week)
+    return render_template("all_picks.html", week=week, weeks=weeks, picks=rows, sched=sched)
 
-# Simple picks view (unchanged, public)
 @app.route("/picks")
 def view_picks():
     week_param=request.args.get("week","").strip()
@@ -401,9 +487,14 @@ def view_picks():
     c.execute("""SELECT username,driver1,driver2,driver3,driver4,driver5,driver6
                  FROM picks WHERE week=? ORDER BY username""", (week,))
     rows=c.fetchall(); conn.close()
-    return render_template("picks.html", picks=rows, week=week)
+    sched = get_schedule_entry(week)
+    return render_template("picks.html", picks=rows, week=week, sched=sched)
 
-# Admin backup
+@app.route("/schedule")
+def schedule_page():
+    sched = list_schedule()
+    return render_template("schedule.html", schedule=sched)
+
 @app.route("/admin_backup")
 def admin_backup():
     if not session.get("is_admin"): return "Unauthorized", 403
@@ -411,7 +502,6 @@ def admin_backup():
         return "No database found.", 404
     return send_file(DB_PATH, as_attachment=True, download_name=os.path.basename(DB_PATH))
 
-# Week controls (admin)
 @app.route("/next_week")
 def next_week():
     if not session.get("is_admin"): return "Unauthorized",403

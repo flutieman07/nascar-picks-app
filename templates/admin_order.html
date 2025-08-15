@@ -1,8 +1,6 @@
 <!DOCTYPE html>
-<html>
-<head><title>Admin - Set Draft Order</title></head>
-<body>
-<h2>Admin: Set Draft Order for Week {{ week }}</h2>
+<html><head><title>Admin - Set Draft Order</title></head><body>
+<h2>Admin: Set Draft Order for Week {{ week }}{% if sched %} — {{ sched.race_name }}{% if sched.race_date %} ({{ sched.race_date }}){% endif %}{% endif %}</h2>
 <p>Enter a comma-separated list of usernames in the exact order you want (snake order happens automatically each round).</p>
 <p><strong>Valid users:</strong> {{ valid|join(", ") }}</p>
 <form method="post">
@@ -15,6 +13,5 @@
   <p>{{ current_order|join(", ") }}</p>
   <p><a href="/order">Open read-only order page</a></p>
 {% endif %}
-<p style="margin-top:1rem;"><a href="/draft">Back to Draft</a></p>
-</body>
-</html>
+<p style="margin-top:1rem;"><a href="/admin_schedule">Manage Schedule</a> | <a href="/draft">Back to Draft</a></p>
+</body></html>

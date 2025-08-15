@@ -1,8 +1,6 @@
 <!DOCTYPE html>
-<html>
-<head><title>Picks - Week {{ week }}</title></head>
-<body>
-<h2>Picks for Week {{ week }}</h2>
+<html><head><title>Picks - Week {{ week }}</title></head><body>
+<h2>Picks for Week {{ week }}{% if sched %} — {{ sched.race_name }}{% if sched.race_date %} ({{ sched.race_date }}){% endif %}{% endif %}</h2>
 <form method="get" action="/picks" style="margin-bottom:1rem;">
   View week: <input type="number" name="week" min="1" value="{{ week }}">
   <button type="submit">Go</button>
@@ -20,5 +18,4 @@
 </table>
 {% else %}<p>No picks found for this week yet.</p>{% endif %}
 <p style="margin-top:1rem;"><a href="/">Back to login</a></p>
-</body>
-</html>
+</body></html>

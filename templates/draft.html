@@ -1,17 +1,159 @@
 <!DOCTYPE html>
 <html>
-<head><title>Snake Draft - Week {{ draft.week }}</title></head>
+<head>
+  <title>Snake Draft - Week {{ current_week }}</title>
+  <style>
+    @keyframes flash-bg {
+      0% { background: #fff; }
+      20% { background: #ffe680; }
+      40% { background: #fff; }
+      60% { background: #ffe680; }
+      80% { background: #fff; }
+      100% { background: #fff; }
+    }
+    .flash {
+      animation: flash-bg 0.8s ease-in-out 1;
+    }
+  </style>
+  <script>
+    const USERNAME = {{ username|tojson }};
+    let lastOnTheClock = null;
+
+    function playBeep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.value = 880; // A5
+        o.connect(g);
+        g.connect(ctx.destination);
+        g.gain.setValueAtTime(0.001, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+        o.start();
+        o.stop(ctx.currentTime + 0.36);
+      } catch(e) { /* ignore */ }
+    }
+
+    function flashScreen() {
+      document.body.classList.add('flash');
+      setTimeout(() => document.body.classList.remove('flash'), 800);
+    }
+
+    async function refreshUI() {
+      const week = {{ current_week }};
+      try {
+        const res = await fetch('/draft_state?week=' + week, {cache: 'no-store'});
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Redirect when draft completes
+        if (data.status === 'complete') {
+          window.location.href = '/all_picks?week=' + week;
+          return;
+        }
+
+        // Update on-the-clock label
+        const otcEl = document.getElementById('onTheClock');
+        if (otcEl) otcEl.textContent = data.on_the_clock;
+
+        // Turn alert: compare last vs current
+        if (data.on_the_clock !== lastOnTheClock) {
+          if (data.on_the_clock === USERNAME) {
+            playBeep();
+            flashScreen();
+          }
+          lastOnTheClock = data.on_the_clock;
+        }
+
+        // Running tally
+        const tbody = document.getElementById('tallyBody');
+        if (tbody) {
+          tbody.innerHTML = '';
+          for (const p of data.picks) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${p.round}</td><td>${p.username}</td><td>${p.driver}</td>`;
+            tbody.appendChild(tr);
+          }
+        }
+
+        // Per-user grid
+        const gridBody = document.getElementById('gridBody');
+        if (gridBody) {
+          gridBody.innerHTML = '';
+          const roundsTotal = data.rounds_total;
+          const seen = new Set();
+          const rowsOrder = [...data.order, ...Object.keys(data.grid).filter(u => !data.order.includes(u)).sort()];
+          for (const user of rowsOrder) {
+            if (seen.has(user)) continue; seen.add(user);
+            const tr = document.createElement('tr');
+            let cells = `<td><strong>${user}</strong></td>`;
+            for (let r=1; r<=roundsTotal; r++) {
+              const val = (data.grid[user] && data.grid[user][r]) ? data.grid[user][r] : '';
+              cells += `<td>${val}</td>`;
+            }
+            tr.innerHTML = cells;
+            gridBody.appendChild(tr);
+          }
+        }
+
+        // Auto-refresh driver dropdown
+        const select = document.querySelector('select[name="driver"]');
+        if (select) {
+          const current = select.value;
+          const newOptions = data.available || [];
+          const existing = Array.from(select.options).map(o => o.value);
+          const changed = existing.length !== newOptions.length || existing.some((v,i) => v !== newOptions[i]);
+          if (changed) {
+            select.innerHTML = '';
+            for (const d of newOptions) {
+              const opt = document.createElement('option');
+              opt.value = d; opt.textContent = d;
+              select.appendChild(opt);
+            }
+            if (newOptions.includes(current)) {
+              select.value = current;
+            }
+          }
+        }
+      } catch(e) { /* ignore */ }
+    }
+
+    setInterval(refreshUI, 3000);
+    window.addEventListener('load', refreshUI);
+  </script>
+</head>
 <body>
-<h2>Snake Draft — Week {{ draft.week }} — Round {{ draft.current_round }}</h2>
+{% if draft.status != "complete" %}
+  <h2>Snake Draft — Week {{ current_week }}{% if sched %} — {{ sched.race_name }}{% if sched.race_date %} ({{ sched.race_date }}){% endif %}{% endif %} — Round {{ draft.current_round }}</h2>
+{% else %}
+  <h2>{% if sched %}{{ sched.race_name }}{% if sched.race_date %} ({{ sched.race_date }}){% endif %}{% else %}Draft Complete{% endif %}</h2>
+{% endif %}
+
 <p>Status: <strong>{{ draft.status }}</strong></p>
 <p><strong>Draft order (this week):</strong> {{ draft.order|join(", ") }}</p>
-<p><strong>On the clock:</strong> {{ on_the_clock }}</p>
+<p><strong>On the clock:</strong> <span id="onTheClock">{{ on_the_clock }}</span></p>
+
+<form method="get" action="/draft" style="margin:12px 0;">
+  <label for="week">Jump to week:</label>
+  <select id="week" name="week">
+    {% for s in schedule_list %}
+      <option value="{{ s.week }}" {% if s.week == current_week %}selected{% endif %}>
+        Week {{ s.week }} — {{ s.race_name }}{% if s.race_date %} ({{ s.race_date }}){% endif %}
+      </option>
+    {% endfor %}
+  </select>
+  <button type="submit">Go</button>
+</form>
 
 <div style="margin: 12px 0;">
   <a href="/all_picks" style="padding:8px 12px;border:1px solid #444;border-radius:6px;text-decoration:none;">View All Picks</a>
+  <a href="/schedule" style="padding:8px 12px;border:1px solid #444;border-radius:6px;text-decoration:none;margin-left:8px;">View Schedule</a>
   {% if session.is_admin %}
     | <a href="/admin_order">Set Draft Order</a>
     | <a href="/admin_reset_picks">Reset picks</a>
+    | <a href="/admin_schedule">Manage Schedule</a>
     | <a href="/admin_users">Manage Users</a>
   {% endif %}
   | <a href="/logout">Log out</a>
@@ -36,7 +178,27 @@
   {% endif %}
 {% else %}
   <h3>Draft complete!</h3>
-  <p>Teams have been saved. View them on <a href="/picks?week={{ draft.week }}">/picks</a> or <a href="/all_picks?week={{ draft.week }}">All Picks</a>.</p>
+  <p>Redirecting you to <a href="/all_picks?week={{ current_week }}">All Picks</a>...</p>
 {% endif %}
+
+<h3 style="margin-top:20px;">Running Tally</h3>
+<table border="1" cellpadding="6" cellspacing="0">
+  <thead><tr><th>Round</th><th>User</th><th>Driver</th></tr></thead>
+  <tbody id="tallyBody"></tbody>
+</table>
+
+<h3 style="margin-top:20px;">Per-User Picks by Round</h3>
+<table border="1" cellpadding="6" cellspacing="0">
+  <thead>
+    <tr>
+      <th>User</th>
+      {% for r in range(1, rounds_total+1) %}
+        <th>Round {{ r }}</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody id="gridBody"></tbody>
+</table>
+
 </body>
 </html>
