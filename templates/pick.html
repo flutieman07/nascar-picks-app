@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><title>Pick Drivers</title></head>
+<body>
+<h2>Week {{ week }} - Pick 6 Drivers</h2>
+<form method="post">
+  {% for driver in drivers %}
+    <input type="checkbox" name="drivers" value="{{ driver }}"> {{ driver }}<br>
+  {% endfor %}
+  <input type="submit" value="Submit Picks">
+</form>
+</body>
+</html>
