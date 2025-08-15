@@ -3,13 +3,14 @@
 <h2>Race Schedule</h2>
 {% if schedule and schedule|length > 0 %}
 <table border="1" cellpadding="6" cellspacing="0">
-  <thead><tr><th>Week</th><th>Race</th><th>Date</th></tr></thead>
+  <thead><tr><th>Week</th><th>Race</th><th>Date</th><th>TV</th></tr></thead>
   <tbody>
     {% for s in schedule %}
       <tr>
         <td>{{ s.week }}</td>
         <td>{{ s.race_name }}</td>
         <td>{{ s.race_date }}</td>
+        <td>{{ s.tv_network }}</td>
       </tr>
     {% endfor %}
   </tbody>

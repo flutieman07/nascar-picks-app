@@ -46,8 +46,8 @@
         const otcEl = document.getElementById('onTheClock');
         if (otcEl) otcEl.textContent = data.on_the_clock;
 
-        // Turn alert
-        if (data.on_the_clock !== lastOnTheClock) {
+        // Turn alert only while draft is active
+        if (data.status === 'active' && data.on_the_clock !== lastOnTheClock) {
           if (data.on_the_clock === USERNAME) { playBeep(); flashScreen(); }
           lastOnTheClock = data.on_the_clock;
         }
@@ -122,7 +122,7 @@
   <select id="week" name="week">
     {% for s in schedule_list %}
       <option value="{{ s.week }}" {% if s.week == current_week %}selected{% endif %}>
-        Week {{ s.week }} — {{ s.race_name }}{% if s.race_date %} ({{ s.race_date }}){% endif %}
+        Week {{ s.week }} — {{ s.race_name }}{% if s.race_date %} ({{ s.race_date }}){% endif %}{% if s.tv_network %} — {{ s.tv_network }}{% endif %}
       </option>
     {% endfor %}
   </select>

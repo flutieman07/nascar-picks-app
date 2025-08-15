@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html><head><title>All Picks</title></head><body>
-<h2>All Picks (Grouped by User) — Week {{ week }}{% if sched %} — {{ sched.race_name }}{% if sched.race_date %} ({{ sched.race_date }}){% endif %}{% endif %}</h2>
+<h2>All Picks (Grouped by User) — Week {{ week }}{% if sched %} — {{ sched.race_name }}{% if sched.race_date %} ({{ sched.race_date }}){% endif %}{% if sched and sched.tv_network %} — {{ sched.tv_network }}{% endif %}</h2>
 <form method="get" action="/all_picks" style="margin-bottom:1rem;">
   Week:
   <select name="week">

@@ -68,7 +68,8 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS schedule (
         week INTEGER PRIMARY KEY,
         race_name TEXT NOT NULL,
-        race_date TEXT
+        race_date TEXT,
+        tv_network TEXT
     )""")
     c.execute("INSERT OR IGNORE INTO meta (key,value) VALUES ('current_week',1)")
     conn.commit(); conn.close()
@@ -148,21 +149,21 @@ def advance_week():
 
 def get_schedule_entry(week:int):
     conn=get_conn(); c=conn.cursor()
-    c.execute("SELECT race_name, race_date FROM schedule WHERE week=?", (week,))
+    c.execute("SELECT race_name, race_date, tv_network FROM schedule WHERE week=?", (week,))
     r=c.fetchone(); conn.close()
     if not r: return None
-    return {"race_name": r[0], "race_date": r[1]}
+    return {"race_name": r[0], "race_date": r[1], "tv_network": r[2]}
 
 def list_schedule():
     conn=get_conn(); c=conn.cursor()
-    c.execute("SELECT week, race_name, COALESCE(race_date,'') FROM schedule ORDER BY week")
-    rows=[{"week":r[0], "race_name":r[1], "race_date":r[2]} for r in c.fetchall()]
+    c.execute("SELECT week, race_name, COALESCE(race_date,''), COALESCE(tv_network,'') FROM schedule ORDER BY week")
+    rows=[{"week":r[0], "race_name":r[1], "race_date":r[2], "tv_network":r[3]} for r in c.fetchall()]
     conn.close(); return rows
 
 def upsert_schedule(rows):
     conn=get_conn(); c=conn.cursor()
-    for wk, name, date in rows:
-        c.execute("REPLACE INTO schedule (week, race_name, race_date) VALUES (?,?,?)", (wk, name, date))
+    for wk, name, date, tv in rows:
+        c.execute("REPLACE INTO schedule (week, race_name, race_date, tv_network) VALUES (?,?,?,?)", (wk, name, date, tv))
     conn.commit(); conn.close()
 
 # --- Draft helpers ---
@@ -328,18 +329,19 @@ def admin_schedule():
     if request.method=="POST":
         csv_text = request.form.get("csv_text","").strip()
         if not csv_text:
-            message="Please paste CSV with columns: week,race_name,race_date"
+            message="Please paste CSV with headers: week,race_name,race_date,tv_network (tv_network optional)."
         else:
             try:
                 reader = csv.DictReader(StringIO(csv_text))
                 rows=[]
                 for row in reader:
-                    wk = int(row.get("week","").strip())
-                    name = row.get("race_name","").strip()
-                    date = row.get("race_date","").strip() if row.get("race_date") else None
+                    wk = int((row.get("week","") or "").strip())
+                    name = (row.get("race_name","") or "").strip()
+                    date = (row.get("race_date","") or "").strip() or None
+                    tv = (row.get("tv_network","") or "").strip() or None
                     if not wk or not name:
                         raise ValueError("Missing week or race_name")
-                    rows.append((wk, name, date))
+                    rows.append((wk, name, date, tv))
                 upsert_schedule(rows)
                 message=f"Imported {len(rows)} schedule entries."
             except Exception as e:
@@ -438,7 +440,6 @@ def draft():
                            username=username, is_my_turn=is_my_turn, on_the_clock=on_the_clock,
                            sched=sched, schedule_list=schedule_list, current_week=week, rounds_total=ROUNDS_TOTAL)
 
-# JSON state for tally/grid/available
 @app.route("/draft_state")
 def draft_state():
     week_param = request.args.get("week","").strip()
