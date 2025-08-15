@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head><title>All Picks</title></head>
+<body>
+<h2>All Picks (Grouped by User)</h2>
+<form method="get" action="/all_picks" style="margin-bottom:1rem;">
+  Week:
+  <select name="week">
+    {% for w in weeks %}
+      <option value="{{ w }}" {% if w == week %}selected{% endif %}>{{ w }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Go</button>
+</form>
+
+{% if picks and picks|length > 0 %}
+<table border="1" cellpadding="6" cellspacing="0">
+  <thead><tr><th>User</th><th>Driver 1</th><th>Driver 2</th><th>Driver 3</th><th>Driver 4</th><th>Driver 5</th><th>Driver 6</th></tr></thead>
+  <tbody>
+    {% for row in picks %}
+    <tr>
+      <td>{{ row[0] }}</td><td>{{ row[1] }}</td><td>{{ row[2] }}</td><td>{{ row[3] }}</td><td>{{ row[4] }}</td><td>{{ row[5] }}</td><td>{{ row[6] }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No picks found yet for this week.</p>
+{% endif %}
+
+<p style="margin-top:1rem;"><a href="/draft">Back to Draft</a></p>
+</body>
+</html>

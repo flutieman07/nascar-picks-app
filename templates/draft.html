@@ -7,6 +7,16 @@
 <p><strong>Draft order (this week):</strong> {{ draft.order|join(", ") }}</p>
 <p><strong>On the clock:</strong> {{ on_the_clock }}</p>
 
+<div style="margin: 12px 0;">
+  <a href="/all_picks" style="padding:8px 12px;border:1px solid #444;border-radius:6px;text-decoration:none;">View All Picks</a>
+  {% if session.is_admin %}
+    | <a href="/admin_order">Set Draft Order</a>
+    | <a href="/admin_reset_picks">Reset picks</a>
+    | <a href="/admin_users">Manage Users</a>
+  {% endif %}
+  | <a href="/logout">Log out</a>
+</div>
+
 <h3>Your picks so far</h3>
 {% if my_picks %}
   <ol>{% for r, d in my_picks %}<li>Round {{ r }} — {{ d }}</li>{% endfor %}</ol>
@@ -26,13 +36,7 @@
   {% endif %}
 {% else %}
   <h3>Draft complete!</h3>
-  <p>Teams have been saved. View them on <a href="/picks?week={{ draft.week }}">/picks</a>.</p>
+  <p>Teams have been saved. View them on <a href="/picks?week={{ draft.week }}">/picks</a> or <a href="/all_picks?week={{ draft.week }}">All Picks</a>.</p>
 {% endif %}
-
-<p style="margin-top:1rem;">
-  <a href="/order">View draft order</a>
-  {% if session.is_admin %} | <a href="/admin_order">Set Draft Order</a> | <a href="/admin_users">Manage Users</a>{% endif %}
-  | <a href="/picks?week={{ draft.week }}">View picks</a> | <a href="/logout">Log out</a>
-</p>
 </body>
 </html>
