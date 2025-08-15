@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head><title>Snake Draft - Week {{ draft.week }}</title></head>
+<body>
+<h2>Snake Draft — Week {{ draft.week }} — Round {{ draft.current_round }}</h2>
+<p>Status: <strong>{{ draft.status }}</strong></p>
+<p><strong>Draft order (this week):</strong> {{ draft.order|join(", ") }}</p>
+<p><strong>On the clock:</strong> {{ on_the_clock }}</p>
+
+<h3>Your picks so far</h3>
+{% if my_picks %}
+  <ol>{% for r, d in my_picks %}<li>Round {{ r }} — {{ d }}</li>{% endfor %}</ol>
+{% else %}<p>(none yet)</p>{% endif %}
+
+{% if draft.status != "complete" %}
+  {% if is_my_turn %}
+    <h3>Make your pick</h3>
+    <form method="post">
+      <select name="driver" required>
+        {% for d in available %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+      </select>
+      <button type="submit">Draft</button>
+    </form>
+  {% else %}
+    <p>Waiting for <strong>{{ on_the_clock }}</strong> to pick...</p>
+  {% endif %}
+{% else %}
+  <h3>Draft complete!</h3>
+  <p>Teams have been saved. View them on <a href="/picks?week={{ draft.week }}">/picks</a>.</p>
+{% endif %}
+
+<p style="margin-top:1rem;">
+  <a href="/order">View draft order</a>
+  {% if session.is_admin %} | <a href="/admin_order">Set Draft Order</a> | <a href="/admin_users">Manage Users</a>{% endif %}
+  | <a href="/picks?week={{ draft.week }}">View picks</a> | <a href="/logout">Log out</a>
+</p>
+</body>
+</html>

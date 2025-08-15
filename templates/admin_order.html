@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head><title>Admin - Set Draft Order</title></head>
+<body>
+<h2>Admin: Set Draft Order for Week {{ week }}</h2>
+<p>Enter a comma-separated list of usernames in the exact order you want (snake order happens automatically each round).</p>
+<p><strong>Valid users:</strong> {{ valid|join(", ") }}</p>
+<form method="post">
+  <input type="text" name="order" style="width:480px" placeholder="Matt, Mark, Bob, Bill">
+  <button type="submit">Save &amp; Start Draft</button>
+</form>
+{% if message %}<p><strong>{{ message }}</strong></p>{% endif %}
+{% if current_order %}
+  <h3>Current order for this week</h3>
+  <p>{{ current_order|join(", ") }}</p>
+  <p><a href="/order">Open read-only order page</a></p>
+{% endif %}
+<p style="margin-top:1rem;"><a href="/draft">Back to Draft</a></p>
+</body>
+</html>
