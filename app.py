@@ -235,10 +235,23 @@ def login():
         if user and user["password_hash"] and check_password_hash(user["password_hash"], p):
             session["username"]=u
             session["is_admin"]=user["is_admin"]
+            session['just_logged_in']=True
             if user["must_change_pw"]:
                 return redirect(url_for("change_password"))
-            return redirect(url_for("draft"))
+            return redirect(url_for("post_login"))
     return render_template("login.html")
+
+@app.route("/post_login")
+def post_login():
+    if "username" not in session:
+        return redirect(url_for("login"))
+    # One-time redirect to all_picks right after login if draft complete
+    just = session.pop('just_logged_in', False)
+    week = get_current_week()
+    d = get_draft(week)
+    if just and d and d['status'] == 'complete':
+        return redirect(url_for('all_picks', week=week))
+    return redirect(url_for('draft', week=week))
 
 @app.route("/logout")
 def logout():
@@ -425,6 +438,7 @@ def draft():
                            username=username, is_my_turn=is_my_turn, on_the_clock=on_the_clock,
                            sched=sched, schedule_list=schedule_list, current_week=week, rounds_total=ROUNDS_TOTAL)
 
+# JSON state for tally/grid/available
 @app.route("/draft_state")
 def draft_state():
     week_param = request.args.get("week","").strip()
