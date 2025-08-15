@@ -11,7 +11,6 @@ import string
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change_me_please")
 
-# --- Persistence: allow DB location via env var (e.g., /var/data/picks.db on Render Disk)
 DB_PATH = os.environ.get("DB_PATH", "picks.db")
 DB_DIR = os.path.dirname(DB_PATH)
 if DB_DIR and not os.path.exists(DB_DIR):
@@ -113,18 +112,14 @@ def ensure_seed_users():
         ("Bill", False),
     ]
     conn=get_conn(); c=conn.cursor()
-    temp_pw_map = {}
     for uname, admin in wanted:
         c.execute("SELECT 1 FROM users WHERE username=?", (uname,))
         if not c.fetchone():
-            temp = generate_temp_password()
-            c.execute("INSERT INTO users (username, password_hash, is_admin, must_change_pw) VALUES (?, ?, ?, 1)",
-                      (uname, generate_password_hash(temp), int(admin)))
-            temp_pw_map[uname] = temp
+            c.execute("INSERT INTO users (username, password_hash, is_admin, must_change_pw) VALUES (?, NULL, ?, 1)",
+                      (uname, int(admin)))
     conn.commit(); conn.close()
-    return temp_pw_map
 
-seeded = ensure_seed_users()
+ensure_seed_users()
 
 def get_current_week():
     conn=get_conn(); c=conn.cursor()
@@ -167,9 +162,6 @@ def create_draft(week, order_list):
               (week, ",".join(order_list), 1, 0, ROUNDS_TOTAL, "active"))
     conn.commit(); conn.close()
     return get_draft(week)
-
-def current_player(order, current_round, current_index):
-    return (order[current_index] if current_round%2==1 else list(reversed(order))[current_index])
 
 def draft_available_drivers(week):
     conn=get_conn(); c=conn.cursor()
@@ -289,6 +281,19 @@ def change_password():
             return redirect(url_for("draft"))
     return render_template("change_password.html", message=message)
 
+@app.route("/admin_bootstrap")
+def admin_bootstrap():
+    token = request.args.get("token","")
+    expected = os.environ.get("ADMIN_TOKEN")
+    if not expected or token != expected:
+        return "Unauthorized. Provide ?token=... matching ADMIN_TOKEN.", 403
+    temp_pw = generate_temp_password()
+    conn=get_conn(); c=conn.cursor()
+    c.execute("INSERT OR IGNORE INTO users (username, password_hash, is_admin, must_change_pw) VALUES ('Matt', NULL, 1, 1)")
+    conn.commit(); conn.close()
+    reset_user_password("Matt", temp_pw)
+    return f"Temporary admin password for Matt: {temp_pw}. Log in as Matt, then change your password."
+
 @app.route("/admin_order", methods=["GET","POST"])
 def admin_order():
     if not session.get("is_admin"): return "Unauthorized",403
@@ -297,7 +302,7 @@ def admin_order():
     if request.method=="POST":
         raw = request.form.get("order","").strip()
         order = [x.strip() for x in raw.split(",") if x.strip()]
-        valid_users = {u["username"] for u in list_users()}
+        valid_users = {u['username'] for u in list_users()}
         if not order:
             message = "Please enter a comma-separated list of usernames."
         elif any(o not in valid_users for o in order):
@@ -309,7 +314,7 @@ def admin_order():
             return redirect(url_for('order'))
     d = get_draft(week)
     current_order = d["order"] if d else None
-    return render_template("admin_order.html", week=week, valid=[u["username"] for u in list_users()],
+    return render_template("admin_order.html", week=week, valid=[u['username'] for u in list_users()],
                            message=message, current_order=current_order)
 
 @app.route("/order")
@@ -368,11 +373,9 @@ def view_picks():
     rows=c.fetchall(); conn.close()
     return render_template("picks.html", picks=rows, week=week)
 
-# --- Admin backup: download the SQLite DB file
 @app.route("/admin_backup")
 def admin_backup():
     if not session.get("is_admin"): return "Unauthorized", 403
-    # Ensure file exists
     if not os.path.exists(DB_PATH):
         return "No database found.", 404
     return send_file(DB_PATH, as_attachment=True, download_name=os.path.basename(DB_PATH))
