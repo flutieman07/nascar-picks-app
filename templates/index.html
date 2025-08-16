@@ -1,19 +1,20 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-    <title>Draft</title>
+  <head>
+    <meta charset="utf-8">
+    <title>Render Bind Check</title>
     <script>
-    async function refreshState() {
-        const resp = await fetch('/draft_state?nocache=' + Date.now(), {cache: 'no-store'});
-        const data = await resp.json();
-        const otcEl = document.getElementById('onTheClock');
-        if (otcEl) otcEl.textContent = data.on_the_clock || '';
-    }
-    setInterval(refreshState, 2000);
-    window.onload = refreshState;
+      async function refresh() {
+        const r = await fetch('/draft_state?nocache=' + Date.now(), {cache:'no-store'});
+        const j = await r.json();
+        document.getElementById('otc').textContent = j.on_the_clock + ' (' + j.ts + ')';
+      }
+      setInterval(refresh, 3000);
+      window.onload = refresh;
     </script>
-</head>
-<body>
-    <h1>On the clock: <span id="onTheClock"></span></h1>
-</body>
+  </head>
+  <body>
+    <h1>Listening OK</h1>
+    <p>On the clock: <span id="otc"></span></p>
+  </body>
 </html>
