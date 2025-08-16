@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html><head><title>Draft Order - Week {{ week }}</title></head><body>
-<h2>Draft Order — Week {{ week }}{% if sched %} — {{ sched.race_name }}{% if sched.race_date %} ({{ sched.race_date }}){% endif %}{% endif %}</h2>
+<h2>Draft Order — Week {{ week }}{% if sched %} — {{ sched.race_name }}{% if sched.race_date %} ({{ sched.race_date }}){% endif %}</h2>
 {% if draft %}
   <p><strong>Order:</strong> {{ draft.order|join(", ") }}</p>
   <p>Status: <strong>{{ draft.status }}</strong></p>
-  <p><a href="/draft">Go to draft</a></p>
+  <p><a href="/draft?week={{ week }}">Go to draft</a></p>
 {% else %}
   <p>No draft created yet for this week.</p>
   <p>{% if session.is_admin %}As admin, set it at <a href="/admin_order">/admin_order</a>.{% else %}Ask an admin to set the order.{% endif %}</p>

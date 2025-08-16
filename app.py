@@ -20,16 +20,6 @@ if DB_DIR and not os.path.exists(DB_DIR):
 DRIVERS_CSV = "nascar_2025_driver_names.csv"
 ROUNDS_TOTAL = 6
 
-def load_drivers():
-    if not Path(DRIVERS_CSV).exists():
-        raise FileNotFoundError(f"Missing {DRIVERS_CSV}. Put it next to app.py.")
-    with open(DRIVERS_CSV, newline="") as f:
-        reader = csv.reader(f)
-        next(reader, None)
-        return [row[0] for row in reader if row and row[0].strip()]
-
-drivers = load_drivers()
-
 def get_conn():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
@@ -68,15 +58,42 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS schedule (
         week INTEGER PRIMARY KEY,
         race_name TEXT NOT NULL,
-        race_date TEXT,
-        tv_network TEXT
+        race_date TEXT
+    )""")
+    # NEW: persistent drivers table
+    c.execute("""CREATE TABLE IF NOT EXISTS drivers (
+        name TEXT PRIMARY KEY
     )""")
     c.execute("INSERT OR IGNORE INTO meta (key,value) VALUES ('current_week',1)")
-    conn.commit(); conn.close()
+    conn.commit()
+    # Seed drivers from CSV on first run (idempotent)
+    try:
+        csv_path = Path(DRIVERS_CSV)
+        if csv_path.exists():
+            with open(csv_path, newline='') as f:
+                reader = csv.reader(f); header = next(reader, None)
+                for row in reader:
+                    if not row: continue
+                    name = row[0].strip()
+                    if name:
+                        c.execute("INSERT OR IGNORE INTO drivers (name) VALUES (?)", (name,))
+            conn.commit()
+    except Exception:
+        pass
+    conn.close()
 
 init_db()
 
 # --- Helpers ---
+def last_name_key(full_name:str):
+    tokens = full_name.replace('.', '').split()
+    if not tokens: return ('', full_name.lower())
+    suffixes = {'jr','sr','ii','iii','iv','v'}
+    last = tokens[-1].lower()
+    if last in suffixes and len(tokens) >= 2:
+        last = tokens[-2].lower()
+    return (last, full_name.lower())
+
 def get_user(username):
     conn=get_conn(); c=conn.cursor()
     c.execute("SELECT username, password_hash, is_admin, must_change_pw FROM users WHERE username=?", (username,))
@@ -111,17 +128,8 @@ def delete_user(username):
     c.execute("DELETE FROM users WHERE username=?", (username,))
     conn.commit(); conn.close()
 
-def generate_temp_password(length=10):
-    alphabet = string.ascii_letters + string.digits
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
-
 def ensure_seed_users():
-    wanted = [
-        ("Matt", True),
-        ("Mark", False),
-        ("Bob", False),
-        ("Bill", False),
-    ]
+    wanted = [("Matt", True), ("Mark", False), ("Bob", False), ("Bill", False)]
     conn=get_conn(); c=conn.cursor()
     for uname, admin in wanted:
         c.execute("SELECT 1 FROM users WHERE username=?", (uname,))
@@ -149,29 +157,48 @@ def advance_week():
 
 def get_schedule_entry(week:int):
     conn=get_conn(); c=conn.cursor()
-    c.execute("SELECT race_name, race_date, tv_network FROM schedule WHERE week=?", (week,))
+    c.execute("SELECT race_name, race_date FROM schedule WHERE week=?", (week,))
     r=c.fetchone(); conn.close()
     if not r: return None
-    return {"race_name": r[0], "race_date": r[1], "tv_network": r[2]}
+    return {"race_name": r[0], "race_date": r[1]}
 
 def list_schedule():
     conn=get_conn(); c=conn.cursor()
-    c.execute("SELECT week, race_name, COALESCE(race_date,''), COALESCE(tv_network,'') FROM schedule ORDER BY week")
-    rows=[{"week":r[0], "race_name":r[1], "race_date":r[2], "tv_network":r[3]} for r in c.fetchall()]
+    c.execute("SELECT week, race_name, COALESCE(race_date,'') FROM schedule ORDER BY week")
+    rows=[{"week":r[0], "race_name":r[1], "race_date":r[2]} for r in c.fetchall()]
     conn.close(); return rows
 
 def upsert_schedule(rows):
     conn=get_conn(); c=conn.cursor()
-    for wk, name, date, tv in rows:
-        c.execute("REPLACE INTO schedule (week, race_name, race_date, tv_network) VALUES (?,?,?,?)", (wk, name, date, tv))
+    for wk, name, date in rows:
+        c.execute("REPLACE INTO schedule (week, race_name, race_date) VALUES (?,?,?)", (wk, name, date))
+    conn.commit(); conn.close()
+
+# --- Drivers helpers ---
+def list_all_drivers():
+    conn=get_conn(); c=conn.cursor()
+    c.execute("SELECT name FROM drivers")
+    names=[r[0] for r in c.fetchall()]
+    conn.close()
+    return sorted(names, key=last_name_key)
+
+def add_driver(name:str):
+    name=name.strip()
+    if not name: return
+    conn=get_conn(); c=conn.cursor()
+    c.execute("INSERT OR IGNORE INTO drivers (name) VALUES (?)", (name,))
     conn.commit(); conn.close()
 
 # --- Draft helpers ---
 def draft_available_drivers(week):
     conn=get_conn(); c=conn.cursor()
     c.execute("SELECT driver FROM draft_picks WHERE week=?", (week,))
-    taken={row[0] for row in c.fetchall()}; conn.close()
-    return [d for d in drivers if d not in taken]
+    taken={row[0] for row in c.fetchall()}
+    c.execute("SELECT name FROM drivers")
+    all_drivers=[r[0] for r in c.fetchall()]
+    conn.close()
+    available=[d for d in all_drivers if d not in taken]
+    return sorted(available, key=last_name_key)
 
 def user_draft_picks(week, username):
     conn=get_conn(); c=conn.cursor()
@@ -246,7 +273,6 @@ def login():
 def post_login():
     if "username" not in session:
         return redirect(url_for("login"))
-    # One-time redirect to all_picks right after login if draft complete
     just = session.pop('just_logged_in', False)
     week = get_current_week()
     d = get_draft(week)
@@ -269,14 +295,14 @@ def admin_users():
             is_admin = 1 if request.form.get("is_admin")=="on" else 0
             if not uname: message="Username is required."
             else:
-                temp_pw = generate_temp_password()
+                temp_pw = secrets.token_urlsafe(8)
                 set_user(uname, temp_pw, is_admin=bool(is_admin), must_change=True)
                 message=f"Created {uname}. Temporary password shown below; share it securely."
         elif action=="reset":
             uname = request.form.get("username","").strip()
             if not uname: message="Username is required for reset."
             else:
-                temp_pw = generate_temp_password()
+                temp_pw = secrets.token_urlsafe(8)
                 reset_user_password(uname, temp_pw)
                 message=f"Reset password for {uname}. Temporary password shown below; share it securely."
         elif action=="delete":
@@ -309,19 +335,6 @@ def change_password():
             return redirect(url_for("draft"))
     return render_template("change_password.html", message=message)
 
-@app.route("/admin_bootstrap")
-def admin_bootstrap():
-    token = request.args.get("token","")
-    expected = os.environ.get("ADMIN_TOKEN")
-    if not expected or token != expected:
-        return "Unauthorized. Provide ?token=... matching ADMIN_TOKEN.", 403
-    temp_pw = generate_temp_password()
-    conn=get_conn(); c=conn.cursor()
-    c.execute("INSERT OR IGNORE INTO users (username, password_hash, is_admin, must_change_pw) VALUES ('Matt', NULL, 1, 1)")
-    conn.commit(); conn.close()
-    reset_user_password("Matt", temp_pw)
-    return f"Temporary admin password for Matt: {temp_pw}. Log in as Matt, then change your password."
-
 @app.route("/admin_schedule", methods=["GET","POST"])
 def admin_schedule():
     if not session.get("is_admin"): return "Unauthorized",403
@@ -329,19 +342,18 @@ def admin_schedule():
     if request.method=="POST":
         csv_text = request.form.get("csv_text","").strip()
         if not csv_text:
-            message="Please paste CSV with headers: week,race_name,race_date,tv_network (tv_network optional)."
+            message="Please paste CSV with columns: week,race_name,race_date"
         else:
             try:
                 reader = csv.DictReader(StringIO(csv_text))
                 rows=[]
                 for row in reader:
-                    wk = int((row.get("week","") or "").strip())
-                    name = (row.get("race_name","") or "").strip()
-                    date = (row.get("race_date","") or "").strip() or None
-                    tv = (row.get("tv_network","") or "").strip() or None
+                    wk = int(row.get("week","").strip())
+                    name = row.get("race_name","").strip()
+                    date = row.get("race_date","").strip() if row.get("race_date") else None
                     if not wk or not name:
                         raise ValueError("Missing week or race_name")
-                    rows.append((wk, name, date, tv))
+                    rows.append((wk, name, date))
                 upsert_schedule(rows)
                 message=f"Imported {len(rows)} schedule entries."
             except Exception as e:
@@ -359,23 +371,35 @@ def order():
 @app.route("/admin_order", methods=["GET","POST"])
 def admin_order():
     if not session.get("is_admin"): return "Unauthorized",403
-    week = get_current_week(); message=None
+    schedule_rows = list_schedule()
+    current_week = get_current_week()
+    message=None
     if request.method=="POST":
+        week_str = request.form.get("week") or ""
+        try:
+            week = int(week_str)
+        except:
+            week = current_week
         raw = request.form.get("order","").strip()
         order = [x.strip() for x in raw.split(",") if x.strip()]
         valid_users = {u['username'] for u in list_users()}
-        if not order: message = "Please enter a comma-separated list of usernames."
+        if not order:
+            message = "Please enter a comma-separated list of usernames."
         elif any(o not in valid_users for o in order):
             message = f"Unknown username in list. Valid: {', '.join(sorted(valid_users))}"
         elif len(order) != len(valid_users):
             message = f"Please include each user exactly once: {', '.join(sorted(valid_users))}"
         else:
             create_draft(week, order)
-            return redirect(url_for('order'))
-    d = get_draft(week); current_order = d["order"] if d else None
-    sched = get_schedule_entry(week)
-    return render_template("admin_order.html", week=week, valid=[u['username'] for u in list_users()],
-                           message=message, current_order=current_order, sched=sched)
+            set_current_week(week)
+            return redirect(url_for('draft', week=week))
+    d = get_draft(current_week)
+    current_order = d["order"] if d else None
+    sched = get_schedule_entry(current_week)
+    return render_template("admin_order.html",
+                           week=current_week, valid=[u['username'] for u in list_users()],
+                           message=message, current_order=current_order,
+                           sched=sched, schedule_list=schedule_rows)
 
 @app.route("/admin_reset_picks", methods=["GET","POST"])
 def admin_reset_picks():
@@ -416,28 +440,39 @@ def draft():
     d=get_draft(week)
     if not d:
         return "Draft not started yet. Ask the admin to set order at /admin_order or visit /start_draft"
+
     available=draft_available_drivers(week)
     my_picks=user_draft_picks(week, username)
     on_the_clock=(d["order"][d["current_index"]] if d["current_round"]%2==1 else list(reversed(d["order"]))[d["current_index"]])
+
     if request.method=="POST":
         if d["status"]=="complete": return redirect(url_for("draft", week=week))
         chosen=request.form.get("driver","").strip()
-        d=get_draft(week); on_the_clock=(d["order"][d["current_index"]] if d["current_round"]%2==1 else list(reversed(d["order"]))[d["current_index"]])
+        custom=request.form.get("custom_driver","").strip()
+        d=get_draft(week)
+        on_the_clock=(d["order"][d["current_index"]] if d["current_round"]%2==1 else list(reversed(d["order"]))[d["current_index"]])
         if username!=on_the_clock: return "Not your turn.",403
-        if chosen not in available: return "Driver not available.",400
+
+        # If custom driver provided, add to drivers table (persist for future)
+        if custom:
+            add_driver(custom)
+            chosen = custom
+
+        # Recompute availability after possibly adding custom
+        available_now = draft_available_drivers(week)
+        if chosen not in available_now:
+            return "Driver not available.",400
+
         add_draft_pick(week, d["current_round"], username, chosen)
         advance_pointer(d)
         d2=get_draft(week)
         if d2["status"]=="complete": consolidate_to_picks(week)
         return redirect(url_for("draft", week=week))
-    d=get_draft(week)
-    on_the_clock=(d["order"][d["current_index"]] if d["current_round"]%2==1 else list(reversed(d["order"]))[d["current_index"]])
-    is_my_turn=(username==on_the_clock)
+
     sched = get_schedule_entry(week)
-    available=draft_available_drivers(week)
     schedule_list = list_schedule()
     return render_template("draft.html", draft=d, available=available, my_picks=my_picks,
-                           username=username, is_my_turn=is_my_turn, on_the_clock=on_the_clock,
+                           username=username, is_my_turn=(username==on_the_clock), on_the_clock=on_the_clock,
                            sched=sched, schedule_list=schedule_list, current_week=week, rounds_total=ROUNDS_TOTAL)
 
 @app.route("/draft_state")

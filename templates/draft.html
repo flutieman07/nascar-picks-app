@@ -3,15 +3,10 @@
 <head>
   <title>Snake Draft - Week {{ current_week }}</title>
   <style>
-    @keyframes flash-bg {
-      0% { background: #fff; }
-      20% { background: #ffe680; }
-      40% { background: #fff; }
-      60% { background: #ffe680; }
-      80% { background: #fff; }
-      100% { background: #fff; }
-    }
+    @keyframes flash-bg { 0%{background:#fff;}20%{background:#ffe680;}40%{background:#fff;}60%{background:#ffe680;}80%{background:#fff;}100%{background:#fff;} }
     .flash { animation: flash-bg 0.8s ease-in-out 1; }
+    table { border-collapse: collapse; }
+    th, td { border:1px solid #999; padding:6px; }
   </style>
   <script>
     const USERNAME = {{ username|tojson }};
@@ -20,21 +15,39 @@
     function playBeep() {
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.type = 'sine';
-        o.frequency.value = 880;
-        o.connect(g); g.connect(ctx.destination);
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
         g.gain.setValueAtTime(0.001, ctx.currentTime);
         g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + 0.01);
         g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
         o.start(); o.stop(ctx.currentTime + 0.36);
       } catch(e) {}
     }
-    function flashScreen() {
-      document.body.classList.add('flash');
-      setTimeout(() => document.body.classList.remove('flash'), 800);
+    function flashScreen(){ document.body.classList.add('flash'); setTimeout(()=>document.body.classList.remove('flash'), 800); }
+
+    function buildRunningTallyMatrix(data) {
+      const rounds = data.rounds_total;
+      const order = data.order;
+      const n = order.length;
+      const grid = data.grid || {};
+      const thead = document.getElementById('tallyMatrixHead');
+      thead.innerHTML = '<tr><th>Pick #</th>' + Array.from({length: rounds}, (_,i)=>`<th>Round ${i+1}</th>`).join('') + '</tr>';
+      const tbody = document.getElementById('tallyMatrixBody');
+      tbody.innerHTML = '';
+      for (let row=0; row<n; row++) {
+        let tr = document.createElement('tr');
+        let cells = `<td><strong>${row+1}</strong></td>`;
+        for (let r=1; r<=rounds; r++) {
+          const orderForRound = (r % 2 === 1) ? order : [...order].reverse();
+          const userAtPos = orderForRound[row];
+          const pick = (grid[userAtPos] && grid[userAtPos][r]) ? grid[userAtPos][r] : '';
+          cells += `<td>${userAtPos ? ('<em>'+userAtPos+':</em> ') : ''}${pick}</td>`;
+        }
+        tr.innerHTML = cells;
+        tbody.appendChild(tr);
+      }
     }
+
     async function refreshUI() {
       const week = {{ current_week }};
       try {
@@ -42,28 +55,17 @@
         if (!res.ok) return;
         const data = await res.json();
 
-        // Update on-the-clock
         const otcEl = document.getElementById('onTheClock');
-        if (otcEl) otcEl.textContent = data.on_the_clock;
+        if (otcEl) otcEl.textContent = data.on_the_clock || '';
 
-        // Turn alert only while draft is active
-        if (data.status === 'active' && data.on_the_clock !== lastOnTheClock) {
+        const draftComplete = (data.status === 'complete');
+        if (!draftComplete && data.on_the_clock !== lastOnTheClock) {
           if (data.on_the_clock === USERNAME) { playBeep(); flashScreen(); }
           lastOnTheClock = data.on_the_clock;
         }
 
-        // Running tally
-        const tbody = document.getElementById('tallyBody');
-        if (tbody) {
-          tbody.innerHTML = '';
-          for (const p of data.picks) {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${p.round}</td><td>${p.username}</td><td>${p.driver}</td>`;
-            tbody.appendChild(tr);
-          }
-        }
+        buildRunningTallyMatrix(data);
 
-        // Per-user grid
         const gridBody = document.getElementById('gridBody');
         if (gridBody) {
           gridBody.innerHTML = '';
@@ -83,7 +85,6 @@
           }
         }
 
-        // Auto-refresh driver dropdown
         const select = document.querySelector('select[name="driver"]');
         if (select) {
           const current = select.value;
@@ -102,6 +103,7 @@
         }
       } catch(e) {}
     }
+
     setInterval(refreshUI, 3000);
     window.addEventListener('load', refreshUI);
   </script>
@@ -122,7 +124,7 @@
   <select id="week" name="week">
     {% for s in schedule_list %}
       <option value="{{ s.week }}" {% if s.week == current_week %}selected{% endif %}>
-        Week {{ s.week }} — {{ s.race_name }}{% if s.race_date %} ({{ s.race_date }}){% endif %}{% if s.tv_network %} — {{ s.tv_network }}{% endif %}
+        Week {{ s.week }} — {{ s.race_name }}{% if s.race_date %} ({{ s.race_date }}){% endif %}
       </option>
     {% endfor %}
   </select>
@@ -150,10 +152,20 @@
   {% if is_my_turn %}
     <h3>Make your pick</h3>
     <form method="post">
-      <select name="driver" required>
-        {% for d in available %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
-      </select>
-      <button type="submit">Draft</button>
+      <div>
+        <label>Choose from list:</label>
+        <select name="driver">
+          <option value="">-- Select a driver --</option>
+          {% for d in available %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+        </select>
+      </div>
+      <div style="margin-top:8px;">
+        <em>Or</em> type a driver not in the list (saved for future weeks):<br>
+        <input type="text" name="custom_driver" placeholder="First Last" style="width:260px">
+      </div>
+      <div style="margin-top:8px;">
+        <button type="submit">Draft</button>
+      </div>
     </form>
   {% else %}
     <p>Waiting for <strong>{{ on_the_clock }}</strong> to pick...</p>
@@ -163,20 +175,18 @@
   <p>View results on <a href="/all_picks?week={{ current_week }}">All Picks</a>.</p>
 {% endif %}
 
-<h3 style="margin-top:20px;">Running Tally</h3>
-<table border="1" cellpadding="6" cellspacing="0">
-  <thead><tr><th>Round</th><th>User</th><th>Driver</th></tr></thead>
-  <tbody id="tallyBody"></tbody>
+<h3 style="margin-top:20px;">Running Tally (by Round)</h3>
+<table>
+  <thead id="tallyMatrixHead"></thead>
+  <tbody id="tallyMatrixBody"></tbody>
 </table>
 
 <h3 style="margin-top:20px;">Per-User Picks by Round</h3>
-<table border="1" cellpadding="6" cellspacing="0">
+<table>
   <thead>
     <tr>
       <th>User</th>
-      {% for r in range(1, rounds_total+1) %}
-        <th>Round {{ r }}</th>
-      {% endfor %}
+      {% for r in range(1, rounds_total+1) %}<th>Round {{ r }}</th>{% endfor %}
     </tr>
   </thead>
   <tbody id="gridBody"></tbody>
