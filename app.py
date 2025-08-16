@@ -65,35 +65,29 @@ def init_db():
         name TEXT PRIMARY KEY
     )""")
     c.execute("INSERT OR IGNORE INTO meta (key,value) VALUES ('current_week',1)")
-    conn.commit()
-    # Seed drivers from CSV on first run (idempotent)
+    conn.commit(); conn.close()
+
+def seed_drivers_from_csv():
+    # Seed drivers table from CSV (idempotent)
+    if not Path(DRIVERS_CSV).exists():
+        return
+    conn = get_conn(); c = conn.cursor()
     try:
-        csv_path = Path(DRIVERS_CSV)
-        if csv_path.exists():
-            with open(csv_path, newline='') as f:
-                reader = csv.reader(f); header = next(reader, None)
-                for row in reader:
-                    if not row: continue
-                    name = row[0].strip()
-                    if name:
-                        c.execute("INSERT OR IGNORE INTO drivers (name) VALUES (?)", (name,))
-            conn.commit()
-    except Exception:
-        pass
-    conn.close()
+        with open(DRIVERS_CSV, newline="") as f:
+            reader = csv.reader(f)
+            header = next(reader, None)
+            for row in reader:
+                name = (row[0] if row else '').strip()
+                if name:
+                    c.execute("INSERT OR IGNORE INTO drivers (name) VALUES (?)", (name,))
+        conn.commit()
+    finally:
+        conn.close()
 
 init_db()
+seed_drivers_from_csv()
 
 # --- Helpers ---
-def last_name_key(full_name:str):
-    tokens = full_name.replace('.', '').split()
-    if not tokens: return ('', full_name.lower())
-    suffixes = {'jr','sr','ii','iii','iv','v'}
-    last = tokens[-1].lower()
-    if last in suffixes and len(tokens) >= 2:
-        last = tokens[-2].lower()
-    return (last, full_name.lower())
-
 def get_user(username):
     conn=get_conn(); c=conn.cursor()
     c.execute("SELECT username, password_hash, is_admin, must_change_pw FROM users WHERE username=?", (username,))
@@ -127,6 +121,10 @@ def delete_user(username):
     conn=get_conn(); c=conn.cursor()
     c.execute("DELETE FROM users WHERE username=?", (username,))
     conn.commit(); conn.close()
+
+def generate_temp_password(length=10):
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 def ensure_seed_users():
     wanted = [("Matt", True), ("Mark", False), ("Bob", False), ("Bill", False)]
@@ -174,31 +172,42 @@ def upsert_schedule(rows):
         c.execute("REPLACE INTO schedule (week, race_name, race_date) VALUES (?,?,?)", (wk, name, date))
     conn.commit(); conn.close()
 
-# --- Drivers helpers ---
-def list_all_drivers():
+# Last-name sort helper
+_SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
+def last_name_key(full_name:str):
+    tokens = full_name.replace('.', '').split()
+    if not tokens:
+        return ('', full_name.lower())
+    last = tokens[-1].lower()
+    if last in _SUFFIXES and len(tokens) >= 2:
+        last = tokens[-2].lower()
+    return (last, full_name.lower())
+
+# Drivers helpers
+def all_driver_names():
     conn=get_conn(); c=conn.cursor()
     c.execute("SELECT name FROM drivers")
     names=[r[0] for r in c.fetchall()]
     conn.close()
-    return sorted(names, key=last_name_key)
+    return names
 
-def add_driver(name:str):
-    name=name.strip()
-    if not name: return
+def add_driver_if_new(name:str):
+    name = name.strip()
+    if not name:
+        return
     conn=get_conn(); c=conn.cursor()
     c.execute("INSERT OR IGNORE INTO drivers (name) VALUES (?)", (name,))
     conn.commit(); conn.close()
 
 # --- Draft helpers ---
 def draft_available_drivers(week):
+    # Available = drivers not taken this week
     conn=get_conn(); c=conn.cursor()
+    c.execute("SELECT name FROM drivers"); all_names=[r[0] for r in c.fetchall()]
     c.execute("SELECT driver FROM draft_picks WHERE week=?", (week,))
     taken={row[0] for row in c.fetchall()}
-    c.execute("SELECT name FROM drivers")
-    all_drivers=[r[0] for r in c.fetchall()]
     conn.close()
-    available=[d for d in all_drivers if d not in taken]
-    return sorted(available, key=last_name_key)
+    return [d for d in all_names if d not in taken]
 
 def user_draft_picks(week, username):
     conn=get_conn(); c=conn.cursor()
@@ -207,7 +216,7 @@ def user_draft_picks(week, username):
 
 def get_draft(week):
     conn=get_conn(); c=conn.cursor()
-    c.execute("SELECT week,order_csv,current_round,current_index,rounds_total,status FROM drafts WHERE week=?",(week,))
+    c.execute("SELECT week,order_csv,current_round,current_index,rounds_total,status FROM drafts WHERE week=?", (week,))
     r=c.fetchone(); conn.close()
     if not r: return None
     return {"week":r[0], "order":r[1].split(","), "current_round":r[2], "current_index":r[3], "rounds_total":r[4], "status":r[5]}
@@ -222,7 +231,7 @@ def create_draft(week, order_list):
 
 def add_draft_pick(week, round_no, username, driver):
     conn=get_conn(); c=conn.cursor()
-    c.execute("INSERT INTO draft_picks (week,round,username,driver) VALUES (?,?,?,?)",(week,round_no,username,driver))
+    c.execute("INSERT INTO draft_picks (week,round,username,driver) VALUES (?,?,?,?)", (week,round_no,username,driver))
     conn.commit(); conn.close()
 
 def advance_pointer(draft):
@@ -245,10 +254,10 @@ def consolidate_to_picks(week):
     c.execute("SELECT DISTINCT username FROM draft_picks WHERE week=?", (week,))
     users_in_draft=[r[0] for r in c.fetchall()]
     for uname in users_in_draft:
-        c.execute("SELECT driver FROM draft_picks WHERE week=? AND username=? ORDER BY round ASC",(week,uname))
+        c.execute("SELECT driver FROM draft_picks WHERE week=? AND username=? ORDER BY round ASC", (week,uname))
         ds=[r[0] for r in c.fetchall()]
         if len(ds)==ROUNDS_TOTAL:
-            c.execute("SELECT 1 FROM picks WHERE week=? AND username=? LIMIT 1",(week,uname))
+            c.execute("SELECT 1 FROM picks WHERE week=? AND username=? LIMIT 1", (week,uname))
             if not c.fetchone():
                 c.execute("""INSERT INTO picks (username,week,driver1,driver2,driver3,driver4,driver5,driver6)
                           VALUES (?,?,?,?,?,?,?,?)""", (uname,week,*ds))
@@ -295,14 +304,14 @@ def admin_users():
             is_admin = 1 if request.form.get("is_admin")=="on" else 0
             if not uname: message="Username is required."
             else:
-                temp_pw = secrets.token_urlsafe(8)
+                temp_pw = generate_temp_password()
                 set_user(uname, temp_pw, is_admin=bool(is_admin), must_change=True)
                 message=f"Created {uname}. Temporary password shown below; share it securely."
         elif action=="reset":
             uname = request.form.get("username","").strip()
             if not uname: message="Username is required for reset."
             else:
-                temp_pw = secrets.token_urlsafe(8)
+                temp_pw = generate_temp_password()
                 reset_user_password(uname, temp_pw)
                 message=f"Reset password for {uname}. Temporary password shown below; share it securely."
         elif action=="delete":
@@ -330,10 +339,23 @@ def change_password():
         else:
             ph = generate_password_hash(new1)
             conn=get_conn(); c=conn.cursor()
-            c.execute("UPDATE users SET password_hash=?, must_change_pw=0 WHERE username=?", (ph, session["username"]))
+            c.execute("UPDATE users SET password_hash=?, must_change_pw=0 WHERE username=?", (ph, session["username"])) 
             conn.commit(); conn.close()
             return redirect(url_for("draft"))
     return render_template("change_password.html", message=message)
+
+@app.route("/admin_bootstrap")
+def admin_bootstrap():
+    token = request.args.get("token","")
+    expected = os.environ.get("ADMIN_TOKEN")
+    if not expected or token != expected:
+        return "Unauthorized. Provide ?token=... matching ADMIN_TOKEN.", 403
+    temp_pw = generate_temp_password()
+    conn=get_conn(); c=conn.cursor()
+    c.execute("INSERT OR IGNORE INTO users (username, password_hash, is_admin, must_change_pw) VALUES ('Matt', NULL, 1, 1)")
+    conn.commit(); conn.close()
+    reset_user_password("Matt", temp_pw)
+    return f"Temporary admin password for Matt: {temp_pw}. Log in as Matt, then change your password."
 
 @app.route("/admin_schedule", methods=["GET","POST"])
 def admin_schedule():
@@ -348,9 +370,9 @@ def admin_schedule():
                 reader = csv.DictReader(StringIO(csv_text))
                 rows=[]
                 for row in reader:
-                    wk = int(row.get("week","").strip())
-                    name = row.get("race_name","").strip()
-                    date = row.get("race_date","").strip() if row.get("race_date") else None
+                    wk = int(row.get("week"," ").strip())
+                    name = row.get("race_name"," ").strip()
+                    date = row.get("race_date"," ").strip() if row.get("race_date") else None
                     if not wk or not name:
                         raise ValueError("Missing week or race_name")
                     rows.append((wk, name, date))
@@ -440,39 +462,38 @@ def draft():
     d=get_draft(week)
     if not d:
         return "Draft not started yet. Ask the admin to set order at /admin_order or visit /start_draft"
-
     available=draft_available_drivers(week)
+    available=sorted(available, key=last_name_key)  # last-name sort for initial render
     my_picks=user_draft_picks(week, username)
     on_the_clock=(d["order"][d["current_index"]] if d["current_round"]%2==1 else list(reversed(d["order"]))[d["current_index"]])
-
     if request.method=="POST":
         if d["status"]=="complete": return redirect(url_for("draft", week=week))
+        # Allow manual driver entry
+        typed = (request.form.get("custom_driver","").strip())
         chosen=request.form.get("driver","").strip()
-        custom=request.form.get("custom_driver","").strip()
-        d=get_draft(week)
-        on_the_clock=(d["order"][d["current_index"]] if d["current_round"]%2==1 else list(reversed(d["order"]))[d["current_index"]])
-        if username!=on_the_clock: return "Not your turn.",403
-
-        # If custom driver provided, add to drivers table (persist for future)
-        if custom:
-            add_driver(custom)
-            chosen = custom
-
-        # Recompute availability after possibly adding custom
+        candidate = typed if typed else chosen
+        if not candidate:
+            return "No driver selected.", 400
+        # Persist newly typed driver
+        add_driver_if_new(candidate)
+        # Recompute availability (in case we just added)
         available_now = draft_available_drivers(week)
-        if chosen not in available_now:
-            return "Driver not available.",400
-
-        add_draft_pick(week, d["current_round"], username, chosen)
+        if candidate not in available_now:
+            return "Driver not available.", 400
+        d=get_draft(week); on_the_clock=(d["order"][d["current_index"]] if d["current_round"]%2==1 else list(reversed(d["order"]))[d["current_index"]])
+        if username!=on_the_clock: return "Not your turn.",403
+        add_draft_pick(week, d["current_round"], username, candidate)
         advance_pointer(d)
         d2=get_draft(week)
         if d2["status"]=="complete": consolidate_to_picks(week)
         return redirect(url_for("draft", week=week))
-
+    d=get_draft(week)
+    on_the_clock=(d["order"][d["current_index"]] if d["current_round"]%2==1 else list(reversed(d["order"]))[d["current_index"]])
+    is_my_turn=(username==on_the_clock)
     sched = get_schedule_entry(week)
     schedule_list = list_schedule()
     return render_template("draft.html", draft=d, available=available, my_picks=my_picks,
-                           username=username, is_my_turn=(username==on_the_clock), on_the_clock=on_the_clock,
+                           username=username, is_my_turn=is_my_turn, on_the_clock=on_the_clock,
                            sched=sched, schedule_list=schedule_list, current_week=week, rounds_total=ROUNDS_TOTAL)
 
 @app.route("/draft_state")
@@ -500,6 +521,7 @@ def draft_state():
 
     on_the_clock = (order[d["current_index"]] if d["current_round"]%2==1 else list(reversed(order))[d["current_index"]])
     available = draft_available_drivers(week)
+    available = sorted(available, key=last_name_key)  # keep dropdown sorted
 
     return jsonify({
         "week": week,

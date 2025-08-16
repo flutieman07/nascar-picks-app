@@ -7,6 +7,7 @@
     .flash { animation: flash-bg 0.8s ease-in-out 1; }
     table { border-collapse: collapse; }
     th, td { border:1px solid #999; padding:6px; }
+    th { background:#f4f4f4; }
   </style>
   <script>
     const USERNAME = {{ username|tojson }};
@@ -25,23 +26,22 @@
     }
     function flashScreen(){ document.body.classList.add('flash'); setTimeout(()=>document.body.classList.remove('flash'), 800); }
 
-    function buildRunningTallyMatrix(data) {
+    function buildRunningTallyByUser(data) {
+      // Header: Player | Round 1 | Round 2 | ...
       const rounds = data.rounds_total;
       const order = data.order;
-      const n = order.length;
-      const grid = data.grid || {};
-      const thead = document.getElementById('tallyMatrixHead');
-      thead.innerHTML = '<tr><th>Pick #</th>' + Array.from({length: rounds}, (_,i)=>`<th>Round ${i+1}</th>`).join('') + '</tr>';
-      const tbody = document.getElementById('tallyMatrixBody');
+      const thead = document.getElementById('tallyHead');
+      thead.innerHTML = '<tr><th>Player</th>' + Array.from({length: rounds}, (_,i)=>`<th>Round ${i+1}</th>`).join('') + '</tr>';
+
+      // Body: one row per player in base draft order; cells = that user's pick in that round
+      const tbody = document.getElementById('tallyBody');
       tbody.innerHTML = '';
-      for (let row=0; row<n; row++) {
+      for (const user of order) {
         let tr = document.createElement('tr');
-        let cells = `<td><strong>${row+1}</strong></td>`;
+        let cells = `<td><strong>${user}</strong></td>`;
         for (let r=1; r<=rounds; r++) {
-          const orderForRound = (r % 2 === 1) ? order : [...order].reverse();
-          const userAtPos = orderForRound[row];
-          const pick = (grid[userAtPos] && grid[userAtPos][r]) ? grid[userAtPos][r] : '';
-          cells += `<td>${userAtPos ? ('<em>'+userAtPos+':</em> ') : ''}${pick}</td>`;
+          const val = (data.grid[user] && data.grid[user][r]) ? data.grid[user][r] : '';
+          cells += `<td>${val}</td>`;
         }
         tr.innerHTML = cells;
         tbody.appendChild(tr);
@@ -64,27 +64,10 @@
           lastOnTheClock = data.on_the_clock;
         }
 
-        buildRunningTallyMatrix(data);
+        // Build the new by-user tally
+        buildRunningTallyByUser(data);
 
-        const gridBody = document.getElementById('gridBody');
-        if (gridBody) {
-          gridBody.innerHTML = '';
-          const roundsTotal = data.rounds_total;
-          const seen = new Set();
-          const rowsOrder = [...data.order, ...Object.keys(data.grid).filter(u => !data.order.includes(u)).sort()];
-          for (const user of rowsOrder) {
-            if (seen.has(user)) continue; seen.add(user);
-            const tr = document.createElement('tr');
-            let cells = `<td><strong>${user}</strong></td>`;
-            for (let r=1; r<=roundsTotal; r++) {
-              const val = (data.grid[user] && data.grid[user][r]) ? data.grid[user][r] : '';
-              cells += `<td>${val}</td>`;
-            }
-            tr.innerHTML = cells;
-            gridBody.appendChild(tr);
-          }
-        }
-
+        // Auto-refresh driver dropdown
         const select = document.querySelector('select[name="driver"]');
         if (select) {
           const current = select.value;
@@ -152,20 +135,13 @@
   {% if is_my_turn %}
     <h3>Make your pick</h3>
     <form method="post">
-      <div>
-        <label>Choose from list:</label>
-        <select name="driver">
-          <option value="">-- Select a driver --</option>
-          {% for d in available %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
-        </select>
-      </div>
-      <div style="margin-top:8px;">
-        <em>Or</em> type a driver not in the list (saved for future weeks):<br>
-        <input type="text" name="custom_driver" placeholder="First Last" style="width:260px">
-      </div>
-      <div style="margin-top:8px;">
-        <button type="submit">Draft</button>
-      </div>
+      <label>Choose a driver:</label>
+      <select name="driver">
+        {% for d in available %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+      </select>
+      <span style="margin:0 8px;">or</span>
+      <input type="text" name="custom_driver" placeholder="Type a driver not in list">
+      <button type="submit">Draft</button>
     </form>
   {% else %}
     <p>Waiting for <strong>{{ on_the_clock }}</strong> to pick...</p>
@@ -175,21 +151,10 @@
   <p>View results on <a href="/all_picks?week={{ current_week }}">All Picks</a>.</p>
 {% endif %}
 
-<h3 style="margin-top:20px;">Running Tally (by Round)</h3>
+<h3 style="margin-top:20px;">Running Tally (Players x Rounds)</h3>
 <table>
-  <thead id="tallyMatrixHead"></thead>
-  <tbody id="tallyMatrixBody"></tbody>
-</table>
-
-<h3 style="margin-top:20px;">Per-User Picks by Round</h3>
-<table>
-  <thead>
-    <tr>
-      <th>User</th>
-      {% for r in range(1, rounds_total+1) %}<th>Round {{ r }}</th>{% endfor %}
-    </tr>
-  </thead>
-  <tbody id="gridBody"></tbody>
+  <thead id="tallyHead"></thead>
+  <tbody id="tallyBody"></tbody>
 </table>
 
 </body>

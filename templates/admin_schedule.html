@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html><head><title>Admin - Schedule</title></head><body>
 <h2>Admin: Import/Update Race Schedule</h2>
-<p>Paste CSV with headers: <code>week,race_name,race_date</code> (date optional).</p>
+<p>Paste CSV with headers: <code>week,race_name,race_date</code> (date optional). Example below.</p>
 {% if message %}<p><strong>{{ message }}</strong></p>{% endif %}
 <form method="post">
-  <textarea name="csv_text" rows="12" cols="90" placeholder="week,race_name,race_date&#10;25,Cook Out 400 (Richmond),2025-08-16"></textarea><br><br>
+  <textarea name="csv_text" rows="10" cols="80" placeholder="week,race_name,race_date&#10;1,Daytona 500,2025-02-16"></textarea><br><br>
   <button type="submit">Import / Replace</button>
 </form>
 <h3>Current Schedule</h3>

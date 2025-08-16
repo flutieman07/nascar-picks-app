@@ -1,17 +1,38 @@
 <!DOCTYPE html>
 <html><head><title>Admin - Set Draft Order</title></head><body>
-<h2>Admin: Set Draft Order for Week {{ week }}{% if sched %} — {{ sched.race_name }}{% if sched.race_date %} ({{ sched.race_date }}){% endif %}{% if sched and sched.tv_network %} — {{ sched.tv_network }}{% endif %}</h2>
-<p>Enter a comma-separated list of usernames in the exact order you want (snake order happens automatically each round).</p>
-<p><strong>Valid users:</strong> {{ valid|join(", ") }}</p>
-<form method="post">
-  <input type="text" name="order" style="width:480px" placeholder="Matt, Mark, Bob, Bill">
-  <button type="submit">Save &amp; Start Draft</button>
-</form>
+<h2>Admin: Set Draft Order</h2>
 {% if message %}<p><strong>{{ message }}</strong></p>{% endif %}
+
+<form method="post" style="margin-bottom:1rem;">
+  <label>Week:&nbsp;
+    {% if schedule_list and schedule_list|length > 0 %}
+      <select name="week">
+        {% for s in schedule_list %}
+          <option value="{{ s.week }}" {% if s.week == week %}selected{% endif %}>
+            Week {{ s.week }} — {{ s.race_name }}{% if s.race_date %} ({{ s.race_date }}){% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    {% else %}
+      <input type="number" name="week" min="1" value="{{ week }}" required>
+    {% endif %}
+  </label>
+  <br><br>
+  <label>Order (comma-separated usernames):<br>
+    <input type="text" name="order" style="width:520px" placeholder="Matt, Mark, Bob, Bill" required>
+  </label>
+  <br><br>
+  <button type="submit">Save &amp; Go To Draft</button>
+</form>
+
+<h3>Current Week Summary</h3>
+<p>Current week: <strong>{{ week }}</strong>{% if sched %} — {{ sched.race_name }}{% if sched.race_date %} ({{ sched.race_date }}){% endif %}{% endif %}</p>
+
 {% if current_order %}
-  <h3>Current order for this week</h3>
+  <h3>Existing order for current week</h3>
   <p>{{ current_order|join(", ") }}</p>
-  <p><a href="/order">Open read-only order page</a></p>
+  <p><a href="/order">Open read-only order page</a> | <a href="/draft?week={{ week }}">Go to draft</a></p>
 {% endif %}
-<p style="margin-top:1rem;"><a href="/admin_schedule">Manage Schedule</a> | <a href="/draft">Back to Draft</a></p>
+
+<p style="margin-top:1rem;"><a href="/admin_schedule">Manage Schedule</a> | <a href="/draft?week={{ week }}">Back to Draft</a></p>
 </body></html>
