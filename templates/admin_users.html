@@ -17,7 +17,7 @@
   <button type="submit">Reset (generate temporary)</button>
 </form>
 <h3>Delete user</h3>
-<form method="post" onsubmit="return confirm('Delete this user? This cannot be undone.')">
+<form method="post" onsubmit="return confirm('Delete this user?')">
   <input type="hidden" name="action" value="delete">
   <label>Username: <input type="text" name="username" required></label>
   <button type="submit">Delete</button>
@@ -36,5 +36,5 @@
 {% endfor %}
 </tbody>
 </table>
-<p style="margin-top:1rem;"><a href="/admin_order">Set Weekly Draft Order</a> | <a href="/draft">Back to Draft</a></p>
+<p><a href="/draft">Back to Draft</a></p>
 </body></html>

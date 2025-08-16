@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html><head><title>Admin - Qualifying</title></head><body>
+<h2>Admin: Import Qualifying Grid</h2>
+{% if message %}<p><strong>{{ message }}</strong></p>{% endif %}
+<form method="post">
+  <label>Week: <input type="number" name="week" min="1" required></label><br><br>
+  <textarea name="csv_text" rows="12" cols="60" placeholder="position,driver&#10;1,Kyle Larson&#10;2,Denny Hamlin"></textarea><br><br>
+  <button type="submit">Import</button>
+</form>
+<p><a href="/draft">Back</a></p>
+</body></html>

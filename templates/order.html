@@ -7,7 +7,7 @@
   <p><a href="/draft?week={{ week }}">Go to draft</a></p>
 {% else %}
   <p>No draft created yet for this week.</p>
-  <p>{% if session.is_admin %}As admin, set it at <a href="/admin_order">/admin_order</a>.{% else %}Ask an admin to set the order.{% endif %}</p>
+  <p>{% if session.is_admin %}Set it at <a href="/admin_order?week={{ week }}">/admin_order</a>.{% else %}Ask an admin to set the order.{% endif %}</p>
 {% endif %}
 <p><a href="/">Back to login</a></p>
 </body></html>

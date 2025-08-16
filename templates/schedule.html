@@ -3,13 +3,15 @@
 <h2>Race Schedule</h2>
 {% if schedule and schedule|length > 0 %}
 <table border="1" cellpadding="6" cellspacing="0">
-  <thead><tr><th>Week</th><th>Race</th><th>Date</th></tr></thead>
+  <thead><tr><th>Week</th><th>Race</th><th>Date</th><th>TV</th><th>Start</th></tr></thead>
   <tbody>
     {% for s in schedule %}
       <tr>
         <td>{{ s.week }}</td>
         <td>{{ s.race_name }}</td>
         <td>{{ s.race_date }}</td>
+        <td>{{ s.tv_network }}</td>
+        <td>{{ s.start_time }}</td>
       </tr>
     {% endfor %}
   </tbody>
@@ -17,5 +19,7 @@
 {% else %}
 <p>No schedule has been loaded yet.</p>
 {% endif %}
-<p style="margin-top:1rem;"><a href="/draft">Back to Draft</a></p>
+<p style="margin-top:1rem;">
+  <a href="/draft">Back to Draft</a>
+</p>
 </body></html>

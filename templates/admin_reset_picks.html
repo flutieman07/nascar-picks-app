@@ -1,15 +1,14 @@
 <!DOCTYPE html>
 <html><head><title>Admin - Reset Picks</title></head><body>
-<h2>Admin: Reset Picks For a Week</h2>
+<h2>Admin: Reset Picks for a Week</h2>
 {% if message %}<p><strong>{{ message }}</strong></p>{% endif %}
 {% if not done %}
-<form method="post" onsubmit="return confirm('Are you sure you want to delete all picks and draft state for the selected week? This cannot be undone.');">
-  <label>Week number: <input type="number" name="week" min="1" value="{{ week }}" required></label><br><br>
-  <label><input type="checkbox" name="confirm"> I understand this will permanently delete all picks and draft state for that week.</label><br><br>
-  <button type="submit" style="background:#b00;color:#fff;padding:8px 12px;border:none;border-radius:4px;">Reset Picks for Week</button>
+<form method="post">
+  <label>Week: <input type="number" name="week" min="1" required></label><br>
+  <label><input type="checkbox" name="confirm"> I understand this will delete all picks and draft state for that week.</label><br><br>
+  <button type="submit">Reset</button>
 </form>
 {% else %}
-<p><a href="/admin_order">Set a new draft order</a> for that week or <a href="/draft">return to draft</a>.</p>
+<p>Done. <a href="/draft">Back to draft</a></p>
 {% endif %}
-<p style="margin-top:1rem;"><a href="/draft">Back to Draft</a> | <a href="/admin_users">Manage Users</a></p>
 </body></html>

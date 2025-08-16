@@ -1,22 +1,22 @@
 <!DOCTYPE html>
 <html><head><title>Admin - Schedule</title></head><body>
 <h2>Admin: Import/Update Race Schedule</h2>
-<p>Paste CSV with headers: <code>week,race_name,race_date</code> (date optional). Example below.</p>
+<p>Paste CSV with headers: <code>week,race_name,race_date,tv_network,start_time</code></p>
 {% if message %}<p><strong>{{ message }}</strong></p>{% endif %}
 <form method="post">
-  <textarea name="csv_text" rows="10" cols="80" placeholder="week,race_name,race_date&#10;1,Daytona 500,2025-02-16"></textarea><br><br>
+  <textarea name="csv_text" rows="10" cols="80" placeholder="week,race_name,race_date,tv_network,start_time&#10;25,Cook Out 400 (Richmond),2025-08-16,NBC,6:00 PM"></textarea><br><br>
   <button type="submit">Import / Replace</button>
 </form>
 <h3>Current Schedule</h3>
 {% if schedule %}
 <table border="1" cellpadding="6" cellspacing="0">
-<thead><tr><th>Week</th><th>Race</th><th>Date</th></tr></thead>
+<thead><tr><th>Week</th><th>Race</th><th>Date</th><th>TV</th><th>Start</th></tr></thead>
 <tbody>
 {% for s in schedule %}
-  <tr><td>{{ s.week }}</td><td>{{ s.race_name }}</td><td>{{ s.race_date }}</td></tr>
+  <tr><td>{{ s.week }}</td><td>{{ s.race_name }}</td><td>{{ s.race_date }}</td><td>{{ s.tv_network }}</td><td>{{ s.start_time }}</td></tr>
 {% endfor %}
 </tbody>
 </table>
 {% else %}<p>(none yet)</p>{% endif %}
-<p style="margin-top:1rem;"><a href="/admin_order">Back to Order</a> | <a href="/draft">Back to Draft</a></p>
+<p><a href="/draft">Back</a></p>
 </body></html>

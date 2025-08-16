@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html><head><title>Lobby</title></head><body>
+<h2>Lobby — Week {{ week }}</h2>
+{% if sched %}
+  <p><strong>{{ sched.race_name }}</strong></p>
+  <p>Date: {{ sched.race_date }}{% if sched.start_time %} at {{ sched.start_time }}{% endif %}</p>
+  <p>TV: {{ sched.tv_network }}</p>
+{% else %}
+  <p>No schedule loaded for this week yet.</p>
+{% endif %}
+<h3>Starting Order (Qualifying)</h3>
+{% if grid and grid|length > 0 %}
+  <ol>
+    {% for pos, drv in grid %}<li>#{{ pos }} — {{ drv }}</li>{% endfor %}
+  </ol>
+{% else %}
+  <p>No qualifying grid loaded yet.</p>
+{% endif %}
+<p style="margin-top:1rem;">
+  {% if session.is_admin %}
+    <a href="/admin_order">Set Draft Order</a> | <a href="/admin_schedule">Manage Schedule</a> | <a href="/admin_qualifying">Manage Qualifying</a> |
+  {% endif %}
+  <a href="/logout">Log out</a>
+</p>
+</body></html>
