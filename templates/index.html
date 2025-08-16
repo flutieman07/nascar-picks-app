@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Draft</title>
+    <script>
+    async function refreshState() {
+        const resp = await fetch('/draft_state?nocache=' + Date.now(), {cache: 'no-store'});
+        const data = await resp.json();
+        const otcEl = document.getElementById('onTheClock');
+        if (otcEl) otcEl.textContent = data.on_the_clock || '';
+    }
+    setInterval(refreshState, 2000);
+    window.onload = refreshState;
+    </script>
+</head>
+<body>
+    <h1>On the clock: <span id="onTheClock"></span></h1>
+</body>
+</html>
