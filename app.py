@@ -3,7 +3,7 @@ import os
 import sqlite3
 import csv
 from io import StringIO
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timedelta
 from dateutil import parser as dtparser
 import pytz
 
@@ -69,23 +69,19 @@ def init_db():
         tv_network TEXT,
         start_time TEXT
     )""")
-    # Add columns for existing installs
     for col in ["tv_network", "start_time"]:
         if not table_has_column(c, "schedule", col):
             c.execute(f"ALTER TABLE schedule ADD COLUMN {col} TEXT")
-    # Qualifying grid
     c.execute("""CREATE TABLE IF NOT EXISTS qualifying (
         week INTEGER NOT NULL,
         position INTEGER NOT NULL,
         driver TEXT NOT NULL,
         PRIMARY KEY (week, position)
     )""")
-    # Drivers master
     c.execute("""CREATE TABLE IF NOT EXISTS drivers (
         name TEXT PRIMARY KEY
     )""")
     conn.commit()
-    # Seed drivers from CSV
     try:
         if Path(DRIVERS_CSV).exists():
             with open(DRIVERS_CSV, newline='') as f:
@@ -99,7 +95,6 @@ def init_db():
             conn.commit()
     except Exception:
         pass
-    # Seed default users if none
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()[0] == 0:
         for uname, admin in [("Matt",1),("Mark",0),("Bob",0),("Bill",0)]:
@@ -109,7 +104,6 @@ def init_db():
 
 init_db()
 
-# --------- helpers ----------
 def list_users():
     conn=get_conn(); c=conn.cursor()
     c.execute("SELECT username, is_admin, (password_hash IS NOT NULL AND password_hash!='') as has_pw, must_change_pw FROM users ORDER BY username")
@@ -141,10 +135,6 @@ def delete_user(username):
     c.execute("DELETE FROM users WHERE username=?", (username,))
     conn.commit(); conn.close()
 
-def generate_temp_password(length=10):
-    alphabet = string.ascii_letters + string.digits
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
-
 def list_schedule():
     conn=get_conn(); c=conn.cursor()
     c.execute("SELECT week, race_name, COALESCE(race_date,''), COALESCE(tv_network,''), COALESCE(start_time,'') FROM schedule ORDER BY week")
@@ -158,44 +148,50 @@ def get_schedule_entry(week:int):
     if not r: return None
     return {"race_name":r[0], "race_date":r[1], "tv_network":r[2], "start_time":r[3]}
 
-def parse_start_dt(race_date_str, start_time_str):
-    if not race_date_str:
-        return None
-    # Expect race_date as YYYY-MM-DD
+def next_friday_after(d: date) -> date:
+    # Return the first Friday strictly AFTER the given date
+    # Monday=0 ... Sunday=6; Friday=4
+    wd = d.weekday()
+    days_ahead = (4 - wd) % 7
+    if days_ahead == 0:
+        days_ahead = 7  # same-day Friday -> next week's Friday
+    return d + timedelta(days=days_ahead)
+
+def parse_local_date(date_str):
     try:
-        d = dtparser.parse(race_date_str).date()
+        return dtparser.parse(date_str).date()
     except Exception:
         return None
-    if start_time_str and start_time_str.strip():
-        try:
-            # Accept "15:00", "3:00 PM", etc.
-            t = dtparser.parse(start_time_str).time()
-        except Exception:
-            t = time(0,0)
-    else:
-        # default to noon local if missing
-        t = time(12,0)
-    return tz().localize(datetime.combine(d, t))
 
 def autodetect_current_week():
     sched = list_schedule()
     if not sched:
         return 1
-    now = datetime.now(tz())
-    # choose first race whose start is >= now (or date >= today if time missing)
-    candidate = None
+    local_tz = tz()
+    now = datetime.now(local_tz)
+
+    # Build a list of (week, advance_dt) where advance_dt is the Friday AFTER the race at 00:00 local time
+    candidates = []
     for row in sched:
-        dt = parse_start_dt(row["race_date"], row["start_time"])
-        if dt is None:
-            # If date missing, skip it for auto-detect
+        if not row["race_date"]:
             continue
-        if dt >= now:
-            candidate = row["week"]
-            break
-    if candidate is not None:
-        return int(candidate)
-    # else all in the past -> last week in schedule
-    return int(sched[-1]["week"])
+        d = parse_local_date(row["race_date"])
+        if not d:
+            continue
+        adv_date = next_friday_after(d)
+        adv_dt = local_tz.localize(datetime.combine(adv_date, time(0,0)))
+        candidates.append((row["week"], adv_dt))
+
+    if not candidates:
+        return sched[0]["week"]
+
+    # Find the first week whose advance_dt is in the future
+    for wk, adv_dt in candidates:
+        if now < adv_dt:
+            return int(wk)
+
+    # If all advance dates have passed, stick on the last week
+    return int(candidates[-1][0])
 
 _SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
 def last_name_key(full_name:str):
@@ -227,7 +223,6 @@ def add_draft_pick(week, round_no, username, driver):
     conn.commit(); conn.close()
 
 def draft_available_drivers(week):
-    # available = master drivers minus already picked for that week
     conn=get_conn(); c=conn.cursor()
     c.execute("SELECT name FROM drivers")
     all_drivers = [r[0] for r in c.fetchall()]
@@ -271,7 +266,6 @@ def consolidate_to_picks(week):
                              VALUES (?,?,?,?,?,?,?,?)""", (uname, week, *ds))
     conn.commit(); conn.close()
 
-# --------- routes ----------
 @app.route("/", methods=["GET","POST"])
 def login():
     if request.method == "POST":
@@ -295,7 +289,6 @@ def post_login():
     d = get_draft(week)
     if not d:
         return redirect(url_for("lobby", week=week))
-    # if draft exists
     if just and d and d["status"] == "complete":
         return redirect(url_for("all_picks", week=week))
     return redirect(url_for("draft", week=week))
@@ -328,17 +321,6 @@ def change_password():
             return redirect(url_for("post_login"))
     return render_template("change_password.html", message=message)
 
-@app.route("/admin_bootstrap")
-def admin_bootstrap():
-    token = request.args.get("token","")
-    expected = os.environ.get("ADMIN_TOKEN")
-    if not expected or token != expected:
-        return "Unauthorized. Provide ?token=... matching ADMIN_TOKEN.", 403
-    temp_pw = generate_temp_password()
-    set_user("Matt", temp_password:=temp_pw, is_admin=True, must_change=True)
-    reset_user_password("Matt", temp_pw)
-    return f"Temporary admin password for Matt: {temp_pw}"
-
 @app.route("/admin_users", methods=["GET","POST"])
 def admin_users():
     if not session.get("is_admin"): return "Unauthorized", 403
@@ -350,14 +332,14 @@ def admin_users():
             is_admin = 1 if request.form.get("is_admin")=="on" else 0
             if not uname: message="Username is required."
             else:
-                temp_pw = generate_temp_password()
+                temp_pw = secrets.token_urlsafe(8)
                 set_user(uname, temp_pw, is_admin=bool(is_admin), must_change=True)
                 message=f"Created {uname}. Temporary password below."
         elif action=="reset":
             uname = request.form.get("username","").strip()
             if not uname: message="Username is required for reset."
             else:
-                temp_pw = generate_temp_password()
+                temp_pw = secrets.token_urlsafe(8)
                 reset_user_password(uname, temp_pw)
                 message=f"Reset password for {uname}. Temporary password below."
         elif action=="delete":
@@ -499,7 +481,6 @@ def draft():
     week=int(week_param) if week_param.isdigit() else autodetect_current_week()
     d=get_draft(week)
     if not d:
-        # no draft started -> lobby
         return redirect(url_for("lobby", week=week))
     available=draft_available_drivers(week)
     available=sorted(available, key=last_name_key)
@@ -508,7 +489,6 @@ def draft():
     if request.method=="POST":
         if d["status"]=="complete":
             return redirect(url_for("draft", week=week))
-        # allow manual driver
         custom = request.form.get("custom_driver","").strip()
         chosen = custom if custom else request.form.get("driver","").strip()
         if custom:
@@ -518,7 +498,6 @@ def draft():
         d=get_draft(week)
         on_the_clock=(d["order"][d["current_index"]] if d["current_round"]%2==1 else list(reversed(d["order"]))[d["current_index"]])
         if username!=on_the_clock: return "Not your turn.",403
-        # check availability again
         avail_now = set(draft_available_drivers(week))
         if chosen not in avail_now:
             return "Driver not available.",400
@@ -555,8 +534,7 @@ def draft_state():
 
     grid = {}
     order = d["order"]
-    all_users = order  # rows as draft order
-    for u in all_users:
+    for u in order:
         grid[u] = {i: "" for i in range(1, d["rounds_total"]+1)}
     for p in picks:
         grid[p["username"]][p["round"]] = p["driver"]
@@ -620,7 +598,6 @@ def admin_backup():
         return "No database found.", 404
     return send_file(DB_PATH, as_attachment=True, download_name=os.path.basename(DB_PATH))
 
-# ------- bind for Render -------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)

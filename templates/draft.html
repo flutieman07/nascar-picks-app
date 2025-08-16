@@ -63,10 +63,8 @@
           lastOnTheClock = data.on_the_clock;
         }
 
-        // Running tally
         buildRunningTallyByUser(data);
 
-        // Per-user grid
         const gridBody = document.getElementById('gridBody');
         if (gridBody) {
           gridBody.innerHTML = '';
@@ -83,7 +81,6 @@
           }
         }
 
-        // Auto-refresh driver dropdown (sorted list provided by server)
         const select = document.querySelector('select[name="driver"]');
         if (select) {
           const current = select.value;
